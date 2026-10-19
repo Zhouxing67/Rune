@@ -2494,14 +2494,18 @@ public sealed partial class PdfViewer : UserControl
         double right = page.X + drawnRects.Max(r => r.X + r.Width) * _zoom - Scroller.HorizontalOffset;
         double top = page.Y + drawnRects.Min(r => r.Y) * _zoom - Scroller.VerticalOffset;
         double bottom = page.Y + drawnRects.Max(r => r.Y + r.Height) * _zoom - Scroller.VerticalOffset;
-        double width = SelectionActions.ActualWidth > 0 ? SelectionActions.ActualWidth : 228;
-        double height = SelectionActions.ActualHeight > 0 ? SelectionActions.ActualHeight : 44;
+        // The overlay is normally Collapsed, so ActualWidth can still be zero
+        // on first show. Measure the real capsule instead of positioning with a
+        // stale guessed width; otherwise it visibly drifts on DPI/theme changes.
+        SelectionActions.Visibility = Visibility.Visible;
+        SelectionActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double width = SelectionActions.DesiredSize.Width;
+        double height = SelectionActions.DesiredSize.Height;
         double x = Math.Clamp((left + right - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
         double y = top - height - 8;
         if (y < 8) y = bottom + 8;
         y = Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8));
         SelectionActions.Margin = new Thickness(x, y, 0, 0);
-        SelectionActions.Visibility = Visibility.Visible;
     }
 
     private void HideSelectionToolbar() => SelectionActions.Visibility = Visibility.Collapsed;

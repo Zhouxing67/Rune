@@ -62,6 +62,37 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
     </Style>
 
+    <!-- Selection actions are one capsule, not five adjacent control boxes.
+         The stock Button template still supplies restrained hover/pressed
+         fills while the resting surface remains completely transparent. -->
+    <Style x:Key="SelectionToolbarSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource SelectionToolbarRadius}" />
+        <Setter Property="Shadow" Value="{ThemeResource FlyoutThemeShadow}" />
+    </Style>
+
+    <Style x:Key="SelectionToolbarButtonStyle" TargetType="Button">
+        <Setter Property="Width" Value="{StaticResource SelectionToolbarButtonSize}" />
+        <Setter Property="Height" Value="{StaticResource SelectionToolbarButtonSize}" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="{StaticResource SelectionToolbarButtonRadius}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="SelectionToolbarSeparatorStyle" TargetType="Border">
+        <Setter Property="Width" Value="1" />
+        <Setter Property="Height" Value="20" />
+        <Setter Property="Margin" Value="4,0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}" />
+    </Style>
+
     <Style x:Key="OutlineItemStyle" TargetType="TreeViewItem">
         <Setter Property="MinHeight" Value="{StaticResource OutlineRowHeight}" />
         <Setter Property="Padding" Value="4,0,8,0" />
