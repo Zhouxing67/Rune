@@ -292,10 +292,14 @@ public sealed partial class PdfDocument : IDisposable
                         continue;
                     }
 
-                    var (target, uri) = ResolveLinkTarget(linkAnnot);
+                    var (target, uri, targetX, targetY) = ResolveLinkTarget(linkAnnot);
                     if (target >= 0 || uri is not null)
                     {
-                        links.Add(new PdfLink(x, y, w, h, target, uri));
+                        if (target >= 0 && (targetX is not null || targetY is not null))
+                        {
+                            (targetX, targetY) = NormalizeDestinationPoint(target, targetX, targetY);
+                        }
+                        links.Add(new PdfLink(x, y, w, h, target, uri, targetX, targetY));
                     }
                 }
             }
@@ -307,32 +311,78 @@ public sealed partial class PdfDocument : IDisposable
         return links;
     }
 
-    private (int TargetPage, string? Uri) ResolveLinkTarget(IntPtr linkAnnot)
+    private (int TargetPage, string? Uri, double? TargetX, double? TargetY) ResolveLinkTarget(IntPtr linkAnnot)
     {
         IntPtr dest = PdfiumNative.LinkGetDest(_handle, linkAnnot);
         if (dest != IntPtr.Zero)
         {
-            return (PdfiumNative.DestGetPageIndex(_handle, dest), null);
+            return ResolveDestination(dest);
         }
 
         IntPtr action = PdfiumNative.LinkGetAction(linkAnnot);
         if (action == IntPtr.Zero)
         {
-            return (-1, null);
+            return (-1, null, null, null);
         }
 
         uint type = PdfiumNative.ActionGetType(action);
         if (type == PdfiumNative.ActionGoto)
         {
             IntPtr actionDest = PdfiumNative.ActionGetDest(_handle, action);
-            return (actionDest == IntPtr.Zero ? -1 : PdfiumNative.DestGetPageIndex(_handle, actionDest), null);
+            return actionDest == IntPtr.Zero ? (-1, null, null, null) : ResolveDestination(actionDest);
         }
         if (type == PdfiumNative.ActionUri)
         {
             string uri = PdfiumNative.ActionGetUri(_handle, action);
-            return (-1, string.IsNullOrEmpty(uri) ? null : uri);
+            return (-1, string.IsNullOrEmpty(uri) ? null : uri, null, null);
         }
-        return (-1, null);
+        return (-1, null, null, null);
+    }
+
+    private (int TargetPage, string? Uri, double? TargetX, double? TargetY) ResolveDestination(IntPtr dest)
+    {
+        int page = PdfiumNative.DestGetPageIndex(_handle, dest);
+        PdfiumNative.DestGetLocation(dest, out float? x, out float? y, out _);
+        return (page, null, x, y);
+    }
+
+    /// <summary>
+    /// PDF destinations use bottom-left page coordinates. Convert any supplied
+    /// components into the same top-left, page-rotation-aware space used by
+    /// links and PageText. Missing components remain missing.
+    /// </summary>
+    private (double? X, double? Y) NormalizeDestinationPoint(int pageIndex, double? x, double? y)
+    {
+        if ((uint)pageIndex >= (uint)_pageSizes.Length)
+        {
+            return (null, null);
+        }
+
+        IntPtr page = AcquirePageLocked(pageIndex);
+        if (page == IntPtr.Zero)
+        {
+            return (x, y is { } rawY ? _pageSizes[pageIndex].Height - rawY : null);
+        }
+
+        try
+        {
+            var (width, height) = _pageSizes[pageIndex];
+            // Device conversion needs both components. A null destination value
+            // means "retain the current one"; zero is only a conversion aid and
+            // is discarded again below.
+            var converted = PdfiumNative.PageToDevice(
+                page,
+                Math.Max(1, (int)MathF.Round(width)),
+                Math.Max(1, (int)MathF.Round(height)),
+                0,
+                (float)(x ?? 0),
+                (float)(y ?? height));
+            return (x is null ? null : converted.X, y is null ? null : converted.Y);
+        }
+        finally
+        {
+            ReleasePageLocked(pageIndex);
+        }
     }
 
     // ---------------------------------------------------------------- text & search

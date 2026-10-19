@@ -344,6 +344,17 @@ public static class PdfiumNative
 
     public static int DestGetPageIndex(IntPtr document, IntPtr dest) => NativeMethods.FPDFDest_GetDestPageIndex(document, dest);
 
+    public static bool DestGetLocation(IntPtr dest, out float? x, out float? y, out float? zoom)
+    {
+        int ok = NativeMethods.FPDFDest_GetLocationInPage(
+            dest, out int hasX, out int hasY, out int hasZoom,
+            out float rawX, out float rawY, out float rawZoom);
+        x = ok != 0 && hasX != 0 ? rawX : null;
+        y = ok != 0 && hasY != 0 ? rawY : null;
+        zoom = ok != 0 && hasZoom != 0 ? rawZoom : null;
+        return ok != 0;
+    }
+
     public const uint ActionGoto = NativeMethods.PDFACTION_GOTO;
     public const uint ActionUri = NativeMethods.PDFACTION_URI;
 

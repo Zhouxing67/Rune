@@ -96,6 +96,13 @@ public sealed partial class PdfViewer : UserControl
     private readonly Dictionary<int, IReadOnlyList<PdfLink>> _links = [];
     private readonly HashSet<int> _linksRequested = [];
     private bool _pointerOverLink;
+    private readonly DispatcherQueueTimer _citationHoverTimer;
+    private readonly DispatcherQueueTimer _citationDismissTimer;
+    private (int Page, PdfLink Link)? _citationCandidate;
+    private (int Page, PdfLink Link)? _citationShown;
+    private readonly Dictionary<(int Page, int X, int Y), ReferencePreview?> _referenceCache = [];
+    private int _citationGeneration;
+    private bool _pointerInCitationCard;
 
     // Per-page text maps (text + char boxes) so selection hit-testing never
     // calls PDFium on the pointer path. Prefetched for visible pages.
@@ -237,6 +244,7 @@ public sealed partial class PdfViewer : UserControl
                 return;
             }
             _activeTool = value;
+            HideCitationPreview();
             if (_isDrawingInk && value != AnnotationTool.Pen)
             {
                 CancelInkStroke();
@@ -319,6 +327,40 @@ public sealed partial class PdfViewer : UserControl
             UpdateCurrentPage();
             PrefetchVisiblePageData();
         };
+
+        _citationHoverTimer = _dispatcher.CreateTimer();
+        _citationHoverTimer.Interval = TimeSpan.FromMilliseconds(420);
+        _citationHoverTimer.IsRepeating = false;
+        _citationHoverTimer.Tick += CitationHoverTimer_Tick;
+
+        _citationDismissTimer = _dispatcher.CreateTimer();
+        _citationDismissTimer.Interval = TimeSpan.FromMilliseconds(220);
+        _citationDismissTimer.IsRepeating = false;
+        _citationDismissTimer.Tick += (_, _) =>
+        {
+            if (!_pointerInCitationCard) HideCitationPreview();
+        };
+
+        CitationPreview.PointerEntered += (_, _) =>
+        {
+            _pointerInCitationCard = true;
+            _citationDismissTimer.Stop();
+        };
+        CitationPreview.PointerExited += (_, _) =>
+        {
+            _pointerInCitationCard = false;
+            ScheduleCitationDismiss();
+        };
+        CitationPreview.CloseRequested += (_, _) => HideCitationPreview();
+        CitationPreview.GoToRequested += (_, _) =>
+        {
+            if (_citationShown is { } shown)
+            {
+                HideCitationPreview();
+                GoToPage(shown.Link.TargetPageIndex, recordHistory: true);
+            }
+        };
+        CitationPreview.OpenLinkRequested += (_, uri) => LinkActivated?.Invoke(this, uri);
 
         Canvas.PointerMoved += Canvas_PointerMoved;
         Canvas.PointerExited += Canvas_PointerExited;
@@ -437,6 +479,8 @@ public sealed partial class PdfViewer : UserControl
         _forward.Clear();
         _links.Clear();
         _linksRequested.Clear();
+        _referenceCache.Clear();
+        HideCitationPreview();
         ClearPageTextCache();
         _selection = null;
         _selectionPage = -1;
@@ -530,6 +574,7 @@ public sealed partial class PdfViewer : UserControl
     /// </summary>
     public void SetZoom(double newZoom, Point? viewportAnchor = null, FitMode fitMode = FitMode.None)
     {
+        HideCitationPreview();
         newZoom = Math.Clamp(newZoom, MinZoom, MaxZoom);
         _fitMode = fitMode;
         if (_layout is null || Math.Abs(newZoom - _zoom) < 0.0001)
@@ -780,6 +825,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        HideCitationPreview();
         HideSelectionToolbar();
         HideMarkupToolbar();
         // Use the size the event carries, not the ScrollViewer's own (still
@@ -834,6 +880,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void Scroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        HideCitationPreview();
         HideSelectionToolbar();
         HideMarkupToolbar();
         CloseNotePopup();
@@ -1700,12 +1747,20 @@ public sealed partial class PdfViewer : UserControl
         // Only offer the link cursor while reading; an armed tool owns the pointer.
         if (_activeTool == AnnotationTool.None)
         {
-            SetLinkCursor(HitTestLink(doc) is not null);
+            var link = HitTestLink(doc);
+            SetLinkCursor(link is not null);
+            if (e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Mouse)
+            {
+                UpdateCitationHover(link, doc);
+            }
         }
     }
 
     private void Canvas_PointerExited(object sender, PointerRoutedEventArgs e)
     {
+        _citationCandidate = null;
+        _citationHoverTimer.Stop();
+        ScheduleCitationDismiss();
         // Leave no ghost stranded at the edge when the pointer goes elsewhere.
         if (UpdateStampHover(null))
         {
@@ -1719,6 +1774,8 @@ public sealed partial class PdfViewer : UserControl
         {
             return;
         }
+
+        HideCitationPreview();
 
         // A press on the page ends any trip to the format bar, so an open box
         // goes back to committing on focus loss as normal. Without this a bar
@@ -2637,6 +2694,127 @@ public sealed partial class PdfViewer : UserControl
             }
         }
         return null;
+    }
+
+    private void UpdateCitationHover(PdfLink? link, Point documentPoint)
+    {
+        if (link is null || !link.IsInternal || _layout is null)
+        {
+            _citationCandidate = null;
+            _citationHoverTimer.Stop();
+            if (CitationPreview.Visibility == Visibility.Visible) ScheduleCitationDismiss();
+            return;
+        }
+
+        int page = _layout.PageAt(documentPoint.Y);
+        var candidate = (Page: page, Link: link);
+        if (_citationShown == candidate && CitationPreview.Visibility == Visibility.Visible)
+        {
+            _citationDismissTimer.Stop();
+            return;
+        }
+        if (_citationCandidate == candidate)
+        {
+            return;
+        }
+
+        _citationCandidate = candidate;
+        _citationGeneration++;
+        _citationDismissTimer.Stop();
+        _citationHoverTimer.Stop();
+        _citationHoverTimer.Start();
+    }
+
+    private async void CitationHoverTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        if (_citationCandidate is not { } candidate || _document is not { } document)
+        {
+            return;
+        }
+
+        int generation = _citationGeneration;
+        var link = candidate.Link;
+        int keyX = (int)Math.Round(link.TargetX ?? -1);
+        int keyY = (int)Math.Round(link.TargetY ?? -1);
+        var key = (link.TargetPageIndex, keyX, keyY);
+
+        ReferencePreview? preview;
+        if (!_referenceCache.TryGetValue(key, out preview))
+        {
+            try
+            {
+                PageText pageText;
+                if (!_pageTexts.TryGetValue(link.TargetPageIndex, out pageText!))
+                {
+                    pageText = await _scheduler.RunAsync(
+                        PdfWorkPriority.Interactive,
+                        () => document.GetPageText(link.TargetPageIndex));
+                    if (_document != document || generation != _citationGeneration) return;
+                    InsertPageText(link.TargetPageIndex, pageText);
+                }
+                preview = ReferenceExtractor.Extract(pageText, link.TargetX, link.TargetY);
+                _referenceCache[key] = preview;
+            }
+            catch
+            {
+                return; // document swap/cancellation or an unreadable text page
+            }
+        }
+
+        if (preview is null || _document != document || generation != _citationGeneration ||
+            _citationCandidate != candidate)
+        {
+            return;
+        }
+
+        _citationShown = candidate;
+        CitationPreview.ShowReference(preview, link.TargetPageIndex);
+        PositionCitationPreview(candidate.Page, link);
+    }
+
+    private void PositionCitationPreview(int sourcePage, PdfLink link)
+    {
+        if (_layout is null) return;
+
+        var transform = Canvas.TransformToVisual(this);
+        Point linkTopLeft = transform.TransformPoint(ToDocumentPoint(sourcePage, link.X, link.Y));
+        Point linkBottomRight = transform.TransformPoint(
+            ToDocumentPoint(sourcePage, link.X + link.Width, link.Y + link.Height));
+
+        CitationPreview.Visibility = Visibility.Visible;
+        CitationPreview.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double width = CitationPreview.DesiredSize.Width;
+        double height = CitationPreview.DesiredSize.Height;
+        double left = Math.Min(linkTopLeft.X, linkBottomRight.X);
+        double right = Math.Max(linkTopLeft.X, linkBottomRight.X);
+        double top = Math.Min(linkTopLeft.Y, linkBottomRight.Y);
+        double bottom = Math.Max(linkTopLeft.Y, linkBottomRight.Y);
+
+        double x = Math.Clamp((left + right - width) / 2, 10, Math.Max(10, ActualWidth - width - 10));
+        double y = bottom + 8;
+        if (y + height > ActualHeight - 10)
+        {
+            y = top - height - 8;
+        }
+        y = Math.Clamp(y, 10, Math.Max(10, ActualHeight - height - 10));
+        CitationPreview.Margin = new Thickness(x, y, 0, 0);
+    }
+
+    private void ScheduleCitationDismiss()
+    {
+        _citationDismissTimer.Stop();
+        _citationDismissTimer.Start();
+    }
+
+    private void HideCitationPreview()
+    {
+        _citationHoverTimer.Stop();
+        _citationDismissTimer.Stop();
+        _citationCandidate = null;
+        _citationShown = null;
+        _pointerInCitationCard = false;
+        _citationGeneration++;
+        CitationPreview.Visibility = Visibility.Collapsed;
     }
 
     private async void EnsureLinks(int pageIndex)

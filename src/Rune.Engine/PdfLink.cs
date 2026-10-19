@@ -9,7 +9,9 @@ namespace Rune.Engine;
 public sealed record PdfLink(
     double X, double Y, double Width, double Height,
     int TargetPageIndex,
-    string? Uri)
+    string? Uri,
+    double? TargetX = null,
+    double? TargetY = null)
 {
     public bool IsInternal => TargetPageIndex >= 0;
 }

@@ -73,6 +73,12 @@
             VerticalAlignment="Top"
             ActionRequested="SelectionActions_ActionRequested" />
 
+        <controls:CitationPreviewCard
+            x:Name="CitationPreview"
+            Visibility="Collapsed"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top" />
+
         <controls:MarkupAnnotationToolbar
             x:Name="MarkupActions" Visibility="Collapsed"
             HorizontalAlignment="Left" VerticalAlignment="Top"

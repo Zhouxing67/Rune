@@ -116,6 +116,17 @@ internal static partial class NativeMethods
     [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
     internal static extern int FPDFDest_GetDestPageIndex(IntPtr document, IntPtr dest);
 
+    /// <summary>Reads an /XYZ destination. Each coordinate may independently be absent.</summary>
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int FPDFDest_GetLocationInPage(
+        IntPtr dest,
+        out int hasXCoord,
+        out int hasYCoord,
+        out int hasZoom,
+        out float x,
+        out float y,
+        out float zoom);
+
     // ---- Links on a page (fpdf_doc.h) ----
 
     [StructLayout(LayoutKind.Sequential)]
