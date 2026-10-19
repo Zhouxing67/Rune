@@ -22,14 +22,16 @@ public sealed partial class DocumentView : UserControl
     private readonly ObservableCollection<ThumbnailItem> _thumbnails = [];
 
     private PdfDocument? _document;
-    private bool _loaded;
+    private Task? _loadTask;
+    private int _lifetimeGeneration;
+    private bool _closed;
     private bool _syncingSelection;
     private List<OutlineNode> _outlineNodes = [];
 
     public string FilePath { get; }
     public string DisplayName => Path.GetFileName(FilePath);
     public PdfViewer Viewer => ViewerControl;
-    public bool IsDocumentLoaded => _loaded;
+    public bool IsDocumentLoaded => _document is not null;
     public string? LoadError { get; private set; }
 
     /// <summary>Set by the shell (from settings) before load: open the sidebar once the document is ready.</summary>
@@ -106,27 +108,44 @@ public sealed partial class DocumentView : UserControl
             return true;
         });
 
-    /// <summary>Opens the document (once) and populates the view. Safe to await repeatedly.</summary>
-    public async Task EnsureLoadedAsync(RecentFile? restore)
+    /// <summary>
+    /// Opens the document once. Every caller awaits the same operation, so
+    /// switching away and back while PDFium is still opening the file cannot
+    /// mistake "load started" for "document ready".
+    /// </summary>
+    public Task EnsureLoadedAsync(RecentFile? restore)
     {
-        if (_loaded)
-        {
-            return;
-        }
-        _loaded = true;
+        if (_closed) return Task.CompletedTask;
+        return _loadTask ??= LoadCoreAsync(restore, _lifetimeGeneration);
+    }
 
+    private async Task LoadCoreAsync(RecentFile? restore, int generation)
+    {
+        PdfDocument document;
         try
         {
-            _document = await RunPdfAsync(PdfWorkPriority.Interactive, () => PdfDocument.Open(FilePath));
+            document = await RunPdfAsync(PdfWorkPriority.Interactive, () => PdfDocument.Open(FilePath));
         }
         catch (Exception ex) when (ex is PdfiumException or IOException)
         {
+            if (_closed || generation != _lifetimeGeneration) return;
             LoadError = ex.Message;
             Loaded2?.Invoke(this, EventArgs.Empty);
             return;
         }
 
-        Viewer.SetDocument(_document);
+        // Closing a tab while its file is opening used to let the continuation
+        // attach a live document to an already removed view. Dispose that late
+        // result instead of leaking it or resurrecting the closed tab.
+        if (_closed || generation != _lifetimeGeneration)
+        {
+            await RunPdfAsync(PdfWorkPriority.Interactive, document.Dispose);
+            return;
+        }
+
+        _document = document;
+
+        Viewer.SetDocument(document);
 
         if (restore is not null)
         {
@@ -137,12 +156,12 @@ public sealed partial class DocumentView : UserControl
             IsPaneOpen = true;
         }
 
-        PopulateThumbnails(_document);
+        PopulateThumbnails(document);
         // CurrentPageChanged doesn't fire on load (the page never changes), so
         // mark the starting page here or its ring never appears.
         SyncThumbnailSelection(Viewer.CurrentPage);
-        _ = PopulateOutlineAsync(_document);
-        _ = ReadSignatureCountAsync(_document);
+        _ = PopulateOutlineAsync(document);
+        _ = ReadSignatureCountAsync(document);
         Loaded2?.Invoke(this, EventArgs.Empty);
     }
 
@@ -177,6 +196,9 @@ public sealed partial class DocumentView : UserControl
 
     public void Close()
     {
+        if (_closed) return;
+        _closed = true;
+        _lifetimeGeneration++;
         ClearUndoHistory();
         Viewer.SetDocument(null);
         var document = _document;

@@ -25,10 +25,12 @@ public sealed partial class MainWindow : Window
     private readonly AppStateStore _store = new(StateDirOverride);
     private readonly AppState _state;
     private readonly Dictionary<DocumentView, RecentFile?> _pendingRestore = [];
+    private readonly HashSet<DocumentView> _tabLoadFinalized = [];
 
     private PdfViewer? _activeViewer;
     private bool _suppressPageBox;
     private bool _restoringSession;
+    private long _tabSelectionGeneration;
 
     // Find-in-document state.
     private CancellationTokenSource? _searchCts;
@@ -227,18 +229,24 @@ public sealed partial class MainWindow : Window
         }
 
         _restoringSession = true;
-        var paths = _state.Session.OpenPaths.Where(File.Exists).ToList();
-        foreach (var path in paths)
+        try
         {
-            AddTab(path, _state.FindRecent(path), select: false);
-        }
+            var paths = _state.Session.OpenPaths.Where(File.Exists).ToList();
+            foreach (var path in paths)
+            {
+                AddTab(path, _state.FindRecent(path), select: false);
+            }
 
-        if (Tabs.TabItems.Count > 0)
-        {
-            int active = Math.Clamp(_state.Session.ActiveIndex, 0, Tabs.TabItems.Count - 1);
-            Tabs.SelectedIndex = active;
+            if (Tabs.TabItems.Count > 0)
+            {
+                int active = Math.Clamp(_state.Session.ActiveIndex, 0, Tabs.TabItems.Count - 1);
+                Tabs.SelectedIndex = active;
+            }
         }
-        _restoringSession = false;
+        finally
+        {
+            _restoringSession = false;
+        }
 
         UpdateStartPageVisibility();
         if (Tabs.SelectedItem is TabViewItem item && item.Tag is DocumentView view)
@@ -357,30 +365,49 @@ public sealed partial class MainWindow : Window
             if (obj is TabViewItem { Tag: DocumentView v } tabItem &&
                 string.Equals(v.FilePath, path, StringComparison.OrdinalIgnoreCase))
             {
+                bool alreadySelected = ReferenceEquals(Tabs.SelectedItem, tabItem);
                 Tabs.SelectedItem = tabItem;
+                _showHome = false;
+                UpdateStartPageVisibility();
+                if (alreadySelected)
+                {
+                    await ActivateSelectedTabAsync();
+                }
                 return;
             }
         }
 
         AddTab(path, _state.FindRecent(path), select: true);
         UpdateStartPageVisibility();
-        if (CurrentView is { } view)
-        {
-            await LoadTabAsync(view);
-        }
     }
 
     private async void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        await ActivateSelectedTabAsync();
+    }
+
+    private async Task ActivateSelectedTabAsync()
+    {
+        long generation = ++_tabSelectionGeneration;
+        DocumentView? view = CurrentView;
         DocHost.Content = CurrentView;
         HookActiveViewer();
         _showHome = false; // picking a tab is a request to read it
         UpdateStartPageVisibility();
 
-        if (!_restoringSession && CurrentView is { } view)
+        if (!_restoringSession && view is not null)
         {
             await LoadTabAsync(view);
         }
+
+        // A slower tab may finish after the user has selected another one.
+        // Its own view can keep the loaded document, but it must not update the
+        // shell that now belongs to the newer selection.
+        if (generation != _tabSelectionGeneration || view != CurrentView)
+        {
+            return;
+        }
+        UpdateToolbarForActive();
     }
 
     private async Task LoadTabAsync(DocumentView view)
@@ -388,7 +415,7 @@ public sealed partial class MainWindow : Window
         _pendingRestore.Remove(view, out var restore);
         await view.EnsureLoadedAsync(restore);
 
-        if (view.LoadError is null)
+        if (view.LoadError is null && view.IsDocumentLoaded && _tabLoadFinalized.Add(view))
         {
             view.LoadBookmarks(_state.FindRecent(view.FilePath)?.Bookmarks ?? []);
         }
@@ -493,6 +520,7 @@ public sealed partial class MainWindow : Window
             DetachTextTool(view.Viewer);
             view.Close();
             _pendingRestore.Remove(view);
+            _tabLoadFinalized.Remove(view);
         }
         Tabs.TabItems.Remove(tab);
         UpdateStartPageVisibility();
@@ -536,11 +564,28 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void Tabs_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (_showHome && Tabs.TabItems.Count > 0)
+        if (!_showHome || Tabs.TabItems.Count == 0)
         {
-            _showHome = false;
-            UpdateStartPageVisibility();
-            UpdateToolbarForActive();
+            return;
+        }
+
+        // Only an actual tab should dismiss Home. The previous broad handler
+        // also reacted to the + button, close glyph and title-bar drag space.
+        DependencyObject? node = e.OriginalSource as DependencyObject;
+        while (node is not null && node is not TabViewItem)
+        {
+            node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
+        }
+        if (node is not TabViewItem clickedTab) return;
+
+        bool alreadySelected = ReferenceEquals(clickedTab, Tabs.SelectedItem);
+        _showHome = false;
+        UpdateStartPageVisibility();
+        if (alreadySelected)
+        {
+            // Native TabView raises no SelectionChanged for the selected tab.
+            // Run after PointerPressed so its own input processing completes.
+            DispatcherQueue.TryEnqueue(() => _ = ActivateSelectedTabAsync());
         }
     }
 
