@@ -20,6 +20,7 @@ public sealed partial class DocumentView : UserControl
 {
     private readonly DispatcherQueue _dispatcher;
     private readonly ObservableCollection<ThumbnailItem> _thumbnails = [];
+    private readonly SemaphoreSlim _saveGate = new(1, 1);
 
     private PdfDocument? _document;
     private Task? _loadTask;
@@ -113,10 +114,31 @@ public sealed partial class DocumentView : UserControl
     /// switching away and back while PDFium is still opening the file cannot
     /// mistake "load started" for "document ready".
     /// </summary>
-    public Task EnsureLoadedAsync(RecentFile? restore)
+    public async Task EnsureLoadedAsync(RecentFile? restore)
     {
-        if (_closed) return Task.CompletedTask;
-        return _loadTask ??= LoadCoreAsync(restore, _lifetimeGeneration);
+        if (_closed) return;
+        if (LoadError is not null && _loadTask?.IsCompleted == true)
+        {
+            // A file can become readable after a transient sharing or network
+            // failure. Selecting the tab again is the explicit retry gesture.
+            LoadError = null;
+            _loadTask = null;
+        }
+        var task = _loadTask ??= LoadCoreAsync(restore, _lifetimeGeneration);
+        try
+        {
+            await task;
+        }
+        catch
+        {
+            // Unexpected initialization failures are retryable on the next
+            // activation instead of poisoning this tab with a faulted Task.
+            if (ReferenceEquals(_loadTask, task))
+            {
+                _loadTask = null;
+            }
+            throw;
+        }
     }
 
     private async Task LoadCoreAsync(RecentFile? restore, int generation)
@@ -201,17 +223,31 @@ public sealed partial class DocumentView : UserControl
         _lifetimeGeneration++;
         ClearUndoHistory();
         Viewer.SetDocument(null);
+        Viewer.ShutdownRenderer();
         var document = _document;
         _document = null;
         if (document is not null)
         {
-            // Dispose takes the global PDFium lock; never block the UI thread
-            // on it (a tile render can hold it for tens of milliseconds).
-            _ = RunPdfAsync(PdfWorkPriority.Interactive, document.Dispose);
+            // The renderer has joined its worker, so no queued operation can
+            // still touch this document. Dispose away from the UI thread.
+            _ = Task.Run(document.Dispose);
         }
     }
 
     public bool IsDirty => _document?.IsDirty == true;
+
+    public async Task FlushPendingEditsAsync()
+    {
+        await _saveGate.WaitAsync();
+        try
+        {
+            await Viewer.FlushPendingEditsAsync();
+        }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
 
     /// <summary>
     /// Persists annotation edits back to the original file. The open document
@@ -220,10 +256,21 @@ public sealed partial class DocumentView : UserControl
     /// </summary>
     public async Task SaveInPlaceAsync()
     {
-        if (_document is not { IsDirty: true } document)
+        await _saveGate.WaitAsync();
+        try
         {
-            return;
+            await Viewer.FlushPendingEditsAsync();
+            await SaveInPlaceCoreAsync();
         }
+        finally
+        {
+            _saveGate.Release();
+        }
+    }
+
+    private async Task SaveInPlaceCoreAsync()
+    {
+        if (_document is not { IsDirty: true } document) return;
 
         string tmp = FilePath + ".saving";
         await RunPdfAsync(PdfWorkPriority.Interactive, () => document.SaveAs(tmp));
@@ -256,6 +303,21 @@ public sealed partial class DocumentView : UserControl
             Viewer.RestoreView(zoom, rotation, fraction);
             PopulateThumbnails(_document);
             _ = PopulateOutlineAsync(_document);
+        }
+    }
+
+    public async Task SaveCopyAsync(string path)
+    {
+        await _saveGate.WaitAsync();
+        try
+        {
+            await Viewer.FlushPendingEditsAsync();
+            if (_document is not { } document) return;
+            await RunPdfAsync(PdfWorkPriority.Interactive, () => document.SaveAs(path));
+        }
+        finally
+        {
+            _saveGate.Release();
         }
     }
 

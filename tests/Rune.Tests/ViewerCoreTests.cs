@@ -260,6 +260,25 @@ public class RenderSchedulerTests
         Thread.Sleep(200);
     }
 
+    [Fact]
+    public void Scheduler_ResumesAfterDesiredWorkIsCleared()
+    {
+        using var doc = PdfDocument.Open(CorpusPath("hello.pdf"));
+        using var rendered = new ManualResetEventSlim();
+        using var scheduler = new RenderScheduler((_, bitmap) =>
+        {
+            bitmap.Return();
+            rendered.Set();
+        });
+
+        scheduler.SetDocument(doc);
+        scheduler.SetDesired([]); // mirrors a viewer being removed from the visual tree
+        scheduler.SetDesired([MakeRequest(doc, 0)]); // mirrors reactivating its tab
+
+        Assert.True(rendered.Wait(TimeSpan.FromSeconds(10)),
+            "scheduler did not resume rendering after the viewer was reactivated");
+    }
+
     private static TileRequest MakeRequest(PdfDocument doc, int pageIndex)
     {
         const float scale = 0.5f;

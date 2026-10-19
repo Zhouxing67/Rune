@@ -185,6 +185,32 @@ public sealed partial class PdfViewer : UserControl
     internal Task<T> RunOnRenderThreadAsync<T>(PdfWorkPriority priority, Func<T> operation)
         => _scheduler.RunAsync(priority, operation);
 
+    /// <summary>
+    /// Commits the active form widget and waits until all interactive edits
+    /// already queued for this document have crossed the render thread.
+    /// </summary>
+    public async Task FlushPendingEditsAsync()
+    {
+        if (_rendererShutdown)
+        {
+            return;
+        }
+        KillFormFocus();
+        await _scheduler.RunAsync(PdfWorkPriority.Interactive, static () => true);
+    }
+
+    /// <summary>Stops rendering when the owning tab is permanently closed.</summary>
+    public void ShutdownRenderer()
+    {
+        if (_rendererShutdown)
+        {
+            return;
+        }
+        _rendererShutdown = true;
+        _scheduler.SetDocument(null);
+        _scheduler.Dispose();
+    }
+
     public bool CanGoBack => _back.Count > 0;
     public bool CanGoForward => _forward.Count > 0;
 
@@ -350,36 +376,14 @@ public sealed partial class PdfViewer : UserControl
             ApplyViewerBackground();
             Canvas.Invalidate();
         };
-        // The scheduler owns a render thread, so it is stopped when the control
-        // leaves the tree. But a TabView unloads the content of a tab you switch
-        // AWAY from, and that is not going away at all — so it has to be able to
-        // come back, or that tab can never render anything again.
-        //
-        // It looks fine for a while, which is what made this hard to see: the
-        // tiles and thumbnails already rendered are still cached and still drawn.
-        // The page only goes white when something invalidates them, and then it
-        // stays white for good. Two tabs, switch across and back, press Ctrl+R:
-        // page and thumbnails both blank, permanently.
-        Unloaded += (_, _) =>
-        {
-            _schedulerStopped = true;
-            _scheduler.Dispose();
-        };
-        Loaded += (_, _) =>
-        {
-            if (!_schedulerStopped)
-            {
-                return;
-            }
-            _schedulerStopped = false;
-            _scheduler = new RenderScheduler(OnTileRendered);
-            // Nothing has changed about the view, so nothing else will ask.
-            RequestDesiredUpdate();
-        };
+        // Leaving DocHost is only a temporary visual-tree transition. Pause
+        // viewport tiles, but keep the scheduler and its document binding alive
+        // across tab switches; the owner stops them only when the tab closes.
+        Unloaded += (_, _) => _scheduler.SetDesired([]);
+        Loaded += (_, _) => RequestDesiredUpdate();
     }
 
-    /// <summary>True while the render thread is stopped because the tab is not on screen.</summary>
-    private bool _schedulerStopped;
+    private bool _rendererShutdown;
 
     private double DisplayScale => XamlRoot?.RasterizationScale ?? 1.0;
     private float RenderScale => (float)(_zoom * DisplayScale);
@@ -2637,7 +2641,7 @@ public sealed partial class PdfViewer : UserControl
 
     private async void EnsureLinks(int pageIndex)
     {
-        if (_document is null || !_linksRequested.Add(pageIndex))
+        if (_document is null || _links.ContainsKey(pageIndex) || !_linksRequested.Add(pageIndex))
         {
             return;
         }
@@ -2653,6 +2657,13 @@ public sealed partial class PdfViewer : UserControl
         catch
         {
             // Best-effort; also covers cancellation when the document swaps.
+        }
+        finally
+        {
+            // This set tracks in-flight work, not permanent attempts. A tab
+            // transition or document swap may cancel the operation; allow the
+            // next hover/tap to retry unless a cache entry was produced.
+            _linksRequested.Remove(pageIndex);
         }
     }
 

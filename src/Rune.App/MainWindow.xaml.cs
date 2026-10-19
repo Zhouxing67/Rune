@@ -91,17 +91,25 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _closeApproved;
+    private bool _closeInProgress;
 
     private async void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
     {
         try
         {
-            if (_closeApproved || AllDocumentViews().All(v => !v.IsDirty))
+            if (_closeApproved)
             {
                 return;
             }
 
+            // Pending edits may not have marked the document dirty yet, so all
+            // closes pass through the async flush before deciding it is clean.
             args.Cancel = true; // must be set before any await
+            if (_closeInProgress)
+            {
+                return;
+            }
+            _closeInProgress = true;
             if (await EnsureSafeToCloseAsync())
             {
                 _closeApproved = true;
@@ -114,6 +122,10 @@ public sealed partial class MainWindow : Window
             ErrorLog.Default.Write("AppWindow_Closing", ex);
             ShowError($"Couldn't close cleanly: {ex.Message}");
         }
+        finally
+        {
+            _closeInProgress = false;
+        }
     }
 
     /// <summary>
@@ -123,6 +135,10 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task<bool> EnsureSafeToCloseAsync()
     {
+        foreach (var view in AllDocumentViews())
+        {
+            await view.FlushPendingEditsAsync();
+        }
         var dirty = AllDocumentViews().Where(v => v.IsDirty).ToList();
         if (dirty.Count == 0)
         {
@@ -270,7 +286,7 @@ public sealed partial class MainWindow : Window
         UpdateStartPageVisibility();
         if (Tabs.SelectedItem is TabViewItem item && item.Tag is DocumentView view)
         {
-            await LoadTabAsync(view);
+            await ActivateTabAsync(item);
         }
     }
 
@@ -458,9 +474,21 @@ public sealed partial class MainWindow : Window
             : Visibility.Visible;
         UpdateStartPageVisibility();
 
-        if (!_restoringSession && view is not null)
+        try
         {
-            await LoadTabAsync(view);
+            if (!_restoringSession)
+            {
+                await LoadTabAsync(view);
+            }
+        }
+        finally
+        {
+            if (generation == _tabSelectionGeneration &&
+                _workspaceMode == WorkspaceMode.Document &&
+                ReferenceEquals(tab, Tabs.SelectedItem))
+            {
+                TabLoadingOverlay.Visibility = Visibility.Collapsed;
+            }
         }
 
         // A slower tab may finish after the user has selected another one.
@@ -472,7 +500,6 @@ public sealed partial class MainWindow : Window
         {
             return;
         }
-        TabLoadingOverlay.Visibility = Visibility.Collapsed;
         UpdateToolbarForActive();
     }
 
@@ -548,6 +575,10 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            if (tab.Tag is DocumentView candidate)
+            {
+                await candidate.FlushPendingEditsAsync();
+            }
             if (tab.Tag is DocumentView { IsDirty: true } dirtyView)
             {
                 var choice = await PromptSaveChangesAsync(dirtyView.DisplayName);
@@ -1277,7 +1308,7 @@ public sealed partial class MainWindow : Window
 
     private async Task SaveAsActiveAsync()
     {
-        if (CurrentView is not { IsDocumentLoaded: true, LoadError: null } view || view.Viewer.Document is not { } document)
+        if (CurrentView is not { IsDocumentLoaded: true, LoadError: null } view)
         {
             return;
         }
@@ -1305,11 +1336,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await view.Viewer.RunOnRenderThreadAsync(PdfWorkPriority.Interactive, () =>
-            {
-                document.SaveAs(file.Path);
-                return true;
-            });
+            await view.SaveCopyAsync(file.Path);
             OpenOrActivate(file.Path);
         }
         catch (Exception ex)
