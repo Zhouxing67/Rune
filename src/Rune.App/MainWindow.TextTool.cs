@@ -403,8 +403,8 @@ public sealed partial class MainWindow
     /// The chords that belong to a caret before they belong to the document.
     ///
     /// Every one of these used to reach straight past an open text box: Ctrl+B
-    /// bookmarked the page while you were trying to embolden a word, Ctrl+I
-    /// flipped the whole document to night mode, Ctrl+E armed the pen and Ctrl+R
+    /// bookmarked the page while you were trying to embolden a word, Ctrl+E
+    /// armed the pen and Ctrl+R
     /// rotated the page. Registering them here, in one place, with all three of
     /// their meanings side by side, is what makes that hard to reintroduce.
     /// </summary>
@@ -415,7 +415,7 @@ public sealed partial class MainWindow
 
         AddAccelerator(VirtualKey.B, Ctrl, ToggleBookmark,
             textBoxAction: ToggleTextBold, formFieldAction: ToggleFieldBold);
-        AddAccelerator(VirtualKey.I, Ctrl, ToggleNightMode,
+        AddAccelerator(VirtualKey.I, Ctrl, action: null,
             textBoxAction: ToggleTextItalic, formFieldAction: ToggleFieldItalic);
         AddAccelerator(VirtualKey.U, Ctrl, action: null,
             textBoxAction: ToggleTextUnderline);

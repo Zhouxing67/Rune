@@ -710,9 +710,9 @@ public sealed partial class PdfViewer
 
         var rotation = RotationFor(pageIndex);
 
-        var border = RuneColors.FormFieldBorder(_nightMode);
-        var focusBorder = RuneColors.FormFieldFocusBorder(_nightMode);
-        var readOnlyBorder = RuneColors.FormFieldReadOnlyBorder(_nightMode);
+        var border = RuneColors.FormFieldBorder(false);
+        var focusBorder = RuneColors.FormFieldFocusBorder(false);
+        var readOnlyBorder = RuneColors.FormFieldReadOnlyBorder(false);
 
         foreach (var field in fields)
         {

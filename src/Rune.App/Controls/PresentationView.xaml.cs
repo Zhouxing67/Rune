@@ -23,11 +23,9 @@ public sealed partial class PresentationView : UserControl
     private PdfDocument? _document;
     private int _page;
     private int _rotation;
-    private bool _nightMode;
 
     private readonly Dictionary<(int Page, int Row, int Col), CanvasBitmap> _tiles = [];
     private readonly HashSet<(int Page, int Row, int Col)> _requested = [];
-    private Microsoft.Graphics.Canvas.Effects.InvertEffect? _invert;
 
     /// <summary>Raised when the user asks to leave (Esc handled by the shell; click-past-last-page here).</summary>
     public event EventHandler? ExitRequested;
@@ -51,12 +49,11 @@ public sealed partial class PresentationView : UserControl
         };
     }
 
-    public void Show(PdfViewer viewer, bool nightMode)
+    public void Show(PdfViewer viewer)
     {
         _viewer = viewer;
         _document = viewer.Document;
         _rotation = viewer.ViewRotation;
-        _nightMode = nightMode;
         _page = Math.Clamp(viewer.CurrentPage, 0, Math.Max(0, (viewer.Document?.PageCount ?? 1) - 1));
         Visibility = Visibility.Visible;
         ClearTiles();
@@ -227,8 +224,6 @@ public sealed partial class PresentationView : UserControl
         }
         _tiles.Clear();
         _requested.Clear();
-        _invert?.Dispose();
-        _invert = null;
     }
 
     // ---------------------------------------------------------------- drawing
@@ -272,16 +267,7 @@ public sealed partial class PresentationView : UserControl
                 var (srcX, srcY, w, h) = TileMath.TileWindow(pxW, pxH, row, col);
                 var dest = new Windows.Foundation.Rect(
                     x0 + srcX / raster, y0 + srcY / raster, w / raster, h / raster);
-                if (_nightMode)
-                {
-                    _invert ??= new Microsoft.Graphics.Canvas.Effects.InvertEffect();
-                    _invert.Source = bitmap;
-                    session.DrawImage(_invert, dest, bitmap.Bounds);
-                }
-                else
-                {
-                    session.DrawImage(bitmap, dest, bitmap.Bounds);
-                }
+                session.DrawImage(bitmap, dest, bitmap.Bounds);
             }
         }
     }

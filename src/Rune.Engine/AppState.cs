@@ -39,7 +39,6 @@ public sealed class AppSettings
     public string Theme { get; set; } = "System";
 
     /// <summary>Invert page colors (night reading mode).</summary>
-    public bool NightMode { get; set; }
 
     /// <summary>Reopen last session's tabs on launch.</summary>
     public bool RestoreSession { get; set; } = true;

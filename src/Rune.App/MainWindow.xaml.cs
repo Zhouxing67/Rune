@@ -51,7 +51,6 @@ public sealed partial class MainWindow : Window
 
         _state = _store.Load();
         ApplyTheme(_state.Settings.Theme);
-        NightButton.IsChecked = _state.Settings.NightMode;
 
         // With the theme set to "System", flipping Windows' theme changes
         // ActualTheme without going through ApplyTheme — the caption buttons
@@ -294,7 +293,6 @@ public sealed partial class MainWindow : Window
         _pendingRestore[view] = restore;
         view.OpenSidebarOnLoad = _state.Settings.SidebarOpenByDefault;
         view.Viewer.LinkActivated += Viewer_LinkActivated;
-        view.Viewer.NightMode = _state.Settings.NightMode;
         SeedToolStyles(view.Viewer);
         view.Viewer.DocumentEdited += (_, _) => UpdateDirtyIndicator(view);
         view.Viewer.ActiveToolChanged += (_, tool) => SyncToolButtons(tool);
@@ -635,7 +633,7 @@ public sealed partial class MainWindow : Window
 
         foreach (var control in new Control[]
                  {
-                     SidebarButton, PageBox, FindButton, NightButton,
+                     SidebarButton, PageBox, FindButton,
                      ZoomInButton, ZoomOutButton, ZoomLabelButton,
                      FitWidthButton, FitPageButton, RotateLeftButton, RotateRightButton,
                      // The annotation cluster. A tool button left out of this
@@ -846,7 +844,7 @@ public sealed partial class MainWindow : Window
 
         Presentation.ExitRequested -= Presentation_ExitRequested;
         Presentation.ExitRequested += Presentation_ExitRequested;
-        Presentation.Show(viewer, _state.Settings.NightMode);
+        Presentation.Show(viewer);
         AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
     }
 
@@ -1199,20 +1197,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // ---------------------------------------------------------------- night / print / properties / settings
-
-    private void NightButton_Click(object sender, RoutedEventArgs e) => ToggleNightMode();
-
-    private void ToggleNightMode()
-    {
-        _state.Settings.NightMode = !_state.Settings.NightMode;
-        NightButton.IsChecked = _state.Settings.NightMode;
-        foreach (var view in AllDocumentViews())
-        {
-            view.Viewer.NightMode = _state.Settings.NightMode;
-        }
-        _store.Save(_state);
-    }
+    // ---------------------------------------------------------------- print / properties / settings
 
     private IEnumerable<DocumentView> AllDocumentViews() =>
         Tabs.TabItems.OfType<TabViewItem>().Select(t => t.Tag).OfType<DocumentView>();
@@ -1669,7 +1654,6 @@ public sealed partial class MainWindow : Window
                 new("Print", "Ctrl+P", () => _ = PrintAsync()),
                 new("Share…", "", () => _ = ShareAsync()),
                 new("Document properties", "Ctrl+D", () => _ = ShowPropertiesAsync()),
-                new("Toggle night mode", "Ctrl+I", ToggleNightMode),
                 new("Toggle sidebar", "F9", () => SidebarButton_Click(this, null!)),
                 new("Presentation mode", "F5", TogglePresentation),
                 new("Bookmark this page", "Ctrl+B", ToggleBookmark),

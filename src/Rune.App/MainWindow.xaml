@@ -260,18 +260,10 @@
                     <FontIcon Glyph="&#xE721;" FontSize="{StaticResource IconGlyphSize}" />
                 </Button>
             </StackPanel>
-            <ToggleButton
-                x:Name="NightButton"
-                Grid.Column="10"
-                Style="{StaticResource IconToggleButtonStyle}"
-                Click="NightButton_Click"
-                IsEnabled="False"
-                AutomationProperties.Name="Night mode" ToolTipService.ToolTip="Night mode — invert page colors (Ctrl+I)">
-                <FontIcon Glyph="&#xE708;" FontSize="{StaticResource IconGlyphSize}" />
-            </ToggleButton>
             <Button
                 x:Name="MenuButton"
-                Grid.Column="11"
+                Grid.Column="10"
+                Grid.ColumnSpan="2"
                 Style="{StaticResource IconButtonStyle}"
                 AutomationProperties.Name="Menu" ToolTipService.ToolTip="Menu">
                 <FontIcon Glyph="&#xE700;" FontSize="{StaticResource IconGlyphSize}" />

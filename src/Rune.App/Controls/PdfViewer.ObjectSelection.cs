@@ -546,16 +546,16 @@ public sealed partial class PdfViewer
         var box = HighlightRect(selected.Page, pageRect, new TextRect(
             selected.Local.X, selected.Local.Y, selected.Local.Width, selected.Local.Height));
 
-        session.FillRectangle(box, RuneColors.SelectedStampWash(_nightMode));
-        session.DrawRectangle(box, RuneColors.SelectedStampBorder(_nightMode), 1.5f,
+        session.FillRectangle(box, RuneColors.SelectedStampWash(false));
+        session.DrawRectangle(box, RuneColors.SelectedStampBorder(false), 1.5f,
             new CanvasStrokeStyle { DashStyle = CanvasDashStyle.Dash });
 
         // Corner handles, in DIPs rather than page points so they stay the same
         // size on screen at any zoom. Drawn from the box's own corners, which
         // have already been through the view rotation, so they land on the
         // visible corners rather than the file's.
-        var border = RuneColors.SelectedStampBorder(_nightMode);
-        var fill = RuneColors.SelectedStampHandle(_nightMode);
+        var border = RuneColors.SelectedStampBorder(false);
+        var fill = RuneColors.SelectedStampHandle(false);
         float half = (float)(HandleSizeDip / 2);
         foreach (var corner in new[]
         {

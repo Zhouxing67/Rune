@@ -51,7 +51,6 @@ public sealed partial class DocumentView : UserControl
             SyncOutlineSelection(page);
         };
         ViewerControl.RotationChanged += (_, rotation) => OnViewRotated(rotation);
-        ViewerControl.NightModeChanged += (_, _) => OnNightModeChanged();
         ViewerControl.AnnotationEdited += (_, e) => PushEdit(new DocumentEdit
         {
             Label = e.Label,
@@ -315,7 +314,7 @@ public sealed partial class DocumentView : UserControl
             // Drop the result if the document or rotation moved on while we waited.
             if (_document == document && Viewer.ViewRotation == rotation)
             {
-                item.Image = ToBitmap(bmp, Viewer.NightMode);
+                item.Image = ToBitmap(bmp);
             }
             bmp.Return();
         }
@@ -326,57 +325,19 @@ public sealed partial class DocumentView : UserControl
     }
 
     /// <summary>
-    /// Copies a rendered page into a bitmap, optionally inverting it for night
-    /// mode. The viewer inverts on the GPU with a Win2D effect, but an Image in
-    /// a virtualized ListView has no equivalent — and leaving thumbnails bright
-    /// beside inverted pages was a long-standing visual bug. A 168x220 DIP
-    /// thumbnail is ~55k pixels, so inverting during the copy is free.
+    /// Copies a rendered page into a thumbnail bitmap.
     /// </summary>
-    private static WriteableBitmap ToBitmap(PageBitmap page, bool invert)
+    private static WriteableBitmap ToBitmap(PageBitmap page)
     {
         var bitmap = new WriteableBitmap(page.Width, page.Height);
         int byteCount = page.Stride * page.Height;
 
         using (var stream = bitmap.PixelBuffer.AsStream())
         {
-            if (!invert)
-            {
-                // Copy exactly one image's worth of bytes (the pooled buffer may be larger).
-                stream.Write(page.Pixels, 0, byteCount);
-            }
-            else
-            {
-                // BGRA: invert colour, leave alpha alone.
-                var inverted = new byte[byteCount];
-                for (int i = 0; i < byteCount; i += 4)
-                {
-                    inverted[i] = (byte)(255 - page.Pixels[i]);
-                    inverted[i + 1] = (byte)(255 - page.Pixels[i + 1]);
-                    inverted[i + 2] = (byte)(255 - page.Pixels[i + 2]);
-                    inverted[i + 3] = page.Pixels[i + 3];
-                }
-                stream.Write(inverted, 0, byteCount);
-            }
+            stream.Write(page.Pixels, 0, byteCount);
         }
         bitmap.Invalidate();
         return bitmap;
-    }
-
-    /// <summary>
-    /// Re-renders realized thumbnails when night mode flips. Only what is on
-    /// screen — the rest come back inverted through virtualization as the user
-    /// scrolls to them.
-    /// </summary>
-    private void OnNightModeChanged()
-    {
-        foreach (var item in _thumbnails)
-        {
-            if (ThumbList.ContainerFromItem(item) is not null)
-            {
-                item.Image = null; // clears IsRendered so the re-request is honoured
-                _ = RenderThumbnailAsync(item);
-            }
-        }
     }
 
     private void ThumbList_SelectionChanged(object sender, SelectionChangedEventArgs e)

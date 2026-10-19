@@ -71,7 +71,6 @@ public sealed partial class PdfViewer : UserControl
     private int _rotation;
     private FitMode _fitMode = FitMode.FitWidth;
     private int _currentPage;
-    private bool _nightMode;
 
     // A document can arrive before the ScrollViewer has been measured (fast
     // opens, lazy tabs). Building the layout against a 0-width viewport makes
@@ -112,7 +111,6 @@ public sealed partial class PdfViewer : UserControl
 
     // One reusable invert effect for night mode (allocating per tile per draw
     // churns the GC during scrolling).
-    private Microsoft.Graphics.Canvas.Effects.InvertEffect? _invertEffect;
 
     // Back/forward: vertical offsets we jumped away from (outline/link/page jumps).
     private readonly Stack<double> _back = new();
@@ -164,7 +162,6 @@ public sealed partial class PdfViewer : UserControl
     public event EventHandler? DocumentEdited;
 
     /// <summary>Raised when night mode toggles, so sidebar thumbnails can re-render inverted.</summary>
-    public event EventHandler? NightModeChanged;
 
     /// <summary>Raised after an annotation add/delete with its undo/redo actions (consumed by the undo stack).</summary>
     public event EventHandler<AnnotationEditEventArgs>? AnnotationEdited;
@@ -269,24 +266,6 @@ public sealed partial class PdfViewer : UserControl
             return Color.FromArgb(255, r, g, b);
         }
         return fallback;
-    }
-
-    /// <summary>Invert page colors for night reading. Draw-time effect; cheap to toggle.</summary>
-    public bool NightMode
-    {
-        get => _nightMode;
-        set
-        {
-            if (_nightMode != value)
-            {
-                _nightMode = value;
-                // The surround follows night mode too, so the background brush
-                // has to be re-applied here and not only on a theme change.
-                ApplyViewerBackground();
-                Canvas.Invalidate();
-                NightModeChanged?.Invoke(this, EventArgs.Empty);
-            }
-        }
     }
 
     public FitMode FitMode
@@ -534,9 +513,6 @@ public sealed partial class PdfViewer : UserControl
         _staleTiles.Clear();
         _stalePreviews.Clear();
 
-        // The effect holds a reference to a (possibly device-lost) bitmap.
-        _invertEffect?.Dispose();
-        _invertEffect = null;
     }
 
     // ---------------------------------------------------------------- zoom & fit
@@ -711,7 +687,30 @@ public sealed partial class PdfViewer : UserControl
         }
         pageIndex = Math.Clamp(pageIndex, 0, _document.PageCount - 1);
         var rect = _layout.GetPageRect(pageIndex);
-        Scroller.ChangeView(null, Math.Max(0, rect.Y - PageLayout.PageGap / 2), null, disableAnimation: true);
+        double target = Math.Max(0, rect.Y - PageLayout.PageGap / 2);
+        Scroller.ChangeView(null, target, null, disableAnimation: true);
+
+        // NumberBox emits once per typed digit, so a quick "1" → "10" can
+        // replace the desired tile list twice before ScrollViewer has committed
+        // its final offset. Reconcile immediately and once after layout; without
+        // the second pass the canvas can sit on page 10 with page 1's now-stale
+        // requests and remain white until the user scrolls.
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        _dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (_layout is null || _document is null) return;
+            var confirmed = _layout.GetPageRect(pageIndex);
+            double confirmedTarget = Math.Max(0, confirmed.Y - PageLayout.PageGap / 2);
+            if (Math.Abs(Scroller.VerticalOffset - confirmedTarget) > 1)
+            {
+                Scroller.ChangeView(null, confirmedTarget, null, disableAnimation: true);
+            }
+            Canvas.Invalidate();
+            UpdateDesiredTiles();
+            UpdateCurrentPage();
+            PrefetchVisiblePageData();
+        });
     }
 
     /// <summary>Smooth line-scroll for keyboard navigation (vim j/k).</summary>
@@ -2740,13 +2739,9 @@ public sealed partial class PdfViewer : UserControl
     }
 
     /// <summary>
-    /// Whether the area *around* the pages should be dark.
-    ///
-    /// Night mode counts, not just the app theme: inverted black pages sitting
-    /// on a light grey field is the worst-looking combination in the app, and
-    /// it is reachable simply by using night mode in the light theme.
+    /// Whether the area around the pages should follow the app's dark theme.
     /// </summary>
-    private bool DarkSurround => _nightMode || ActualTheme == ElementTheme.Dark;
+    private bool DarkSurround => ActualTheme == ElementTheme.Dark;
 
     private void ApplyViewerBackground()
     {
@@ -2782,7 +2777,7 @@ public sealed partial class PdfViewer : UserControl
             var pageRect = _layout.GetPageRect(i);
             var pageXamlRect = new Rect(pageRect.X, pageRect.Y, pageRect.Width, pageRect.Height);
 
-            session.FillRectangle(pageXamlRect, RuneColors.PageFill(_nightMode));
+            session.FillRectangle(pageXamlRect, RuneColors.PageFill(false));
 
             if (_previews.TryGetValue(i, out var preview))
             {
@@ -2804,7 +2799,7 @@ public sealed partial class PdfViewer : UserControl
                             pageRect.Y + srcY / rasterScale,
                             w / rasterScale,
                             h / rasterScale);
-                        DebugLog($"  HIT {key.PageIndex}/{key.Row},{key.Col} bmp={entry.Bitmap.SizeInPixels.Width}x{entry.Bitmap.SizeInPixels.Height} dest=({dest.X:0},{dest.Y:0},{dest.Width:0}x{dest.Height:0}) night={_nightMode}");
+                        DebugLog($"  HIT {key.PageIndex}/{key.Row},{key.Col} bmp={entry.Bitmap.SizeInPixels.Width}x{entry.Bitmap.SizeInPixels.Height} dest=({dest.X:0},{dest.Y:0},{dest.Width:0}x{dest.Height:0})");
                         DrawPageImage(session, entry.Bitmap, dest);
                         TouchTile(key);
                     }
@@ -2841,30 +2836,16 @@ public sealed partial class PdfViewer : UserControl
         }
     }
 
-    /// <summary>
-    /// Draws page content, inverting colors on the GPU in night mode. Cached
-    /// tiles stay in normal colors, so toggling costs nothing but a repaint.
-    /// </summary>
+    /// <summary>Draws cached page content at its destination.</summary>
     private void DrawPageImage(CanvasDrawingSession session, CanvasBitmap bitmap, Rect dest)
     {
-        if (_nightMode)
-        {
-            _invertEffect ??= new Microsoft.Graphics.Canvas.Effects.InvertEffect();
-            _invertEffect.Source = bitmap;
-            session.DrawImage(_invertEffect, dest, bitmap.Bounds);
-        }
-        else
-        {
-            session.DrawImage(bitmap, dest, bitmap.Bounds);
-        }
+        session.DrawImage(bitmap, dest, bitmap.Bounds);
     }
 
     private void DrawHighlights(CanvasDrawingSession session, int pageIndex, DipRect pageRect)
     {
-        // Overlays are painted after the tiles and are NOT put through the
-        // invert effect, so their colours key on night mode directly.
-        var searchColor = RuneColors.Search(_nightMode);
-        var activeSearchColor = RuneColors.ActiveSearch(_nightMode);
+        var searchColor = RuneColors.Search(false);
+        var activeSearchColor = RuneColors.ActiveSearch(false);
 
         // Search hits (only visible pages carry entries).
         if (_searchByPage.TryGetValue(pageIndex, out var hits))
@@ -2886,7 +2867,7 @@ public sealed partial class PdfViewer : UserControl
         {
             foreach (var r in selection.Rects)
             {
-                session.FillRectangle(HighlightRect(pageIndex, pageRect, r), RuneColors.Selection(_nightMode));
+                session.FillRectangle(HighlightRect(pageIndex, pageRect, r), RuneColors.Selection(false));
             }
         }
     }
