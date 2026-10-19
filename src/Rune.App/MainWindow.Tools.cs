@@ -107,6 +107,11 @@ public sealed partial class MainWindow
         // ---- Signature has its own panel entirely ----
         if (tool == AnnotationTool.Signature)
         {
+            // A StackPanel otherwise measures its children with effectively
+            // unlimited horizontal space. The instruction line then stretches
+            // the Flyout far beyond the other tool panels and produces a
+            // horizontal scrollbar. Match the markup panel's compact width.
+            root.Width = 360;
             root.Children.Add(new TextBlock { Text = "Signature", Style = caption });
 
             // Saved signatures are filled in asynchronously (decoding PNGs) but
@@ -117,10 +122,12 @@ public sealed partial class MainWindow
 
             root.Children.Add(new TextBlock
             {
-                Text = "Click to place at the last size, or drag to draw the box. "
-                     + "Ctrl+wheel resizes it before you drop it.",
+                Text = "Click to place at the last size.\n"
+                     + "Drag to draw a custom box.\n"
+                     + "Ctrl+wheel resizes before placement.",
                 Style = secondary,
                 TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 360,
             });
 
             // "Draw new" since v0.5.0, but the dialog behind it now draws, types
