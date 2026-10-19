@@ -1521,7 +1521,6 @@ public sealed partial class MainWindow : Window
         };
         var restoreCheck = new CheckBox { Content = "Reopen last session at startup", IsChecked = _state.Settings.RestoreSession };
         var sidebarCheck = new CheckBox { Content = "Show the sidebar when a document opens", IsChecked = _state.Settings.SidebarOpenByDefault };
-        var thumbsCheck = new CheckBox { Content = "Show recent documents as thumbnails on the start page", IsChecked = _state.Settings.ShowRecentThumbnails };
         var vimCheck = new CheckBox { Content = "Keyboard navigation (j/k scroll, gg/G first/last page, n next hit)", IsChecked = _state.Settings.VimKeys };
 
         var panel = new StackPanel { Spacing = 12 };
@@ -1529,7 +1528,6 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(themeBox);
         panel.Children.Add(restoreCheck);
         panel.Children.Add(sidebarCheck);
-        panel.Children.Add(thumbsCheck);
         panel.Children.Add(vimCheck);
         panel.Children.Add(new TextBlock
         {
@@ -1552,17 +1550,17 @@ public sealed partial class MainWindow : Window
             _state.Settings.Theme = themeBox.SelectedItem as string ?? "System";
             _state.Settings.RestoreSession = restoreCheck.IsChecked == true;
             _state.Settings.SidebarOpenByDefault = sidebarCheck.IsChecked == true;
-            _state.Settings.ShowRecentThumbnails = thumbsCheck.IsChecked == true;
             _state.Settings.VimKeys = vimCheck.IsChecked == true;
             ApplyTheme(_state.Settings.Theme);
             _store.Save(_state);
-            PopulateRecents(); // reflect the thumbnails toggle immediately
         }
     }
 
     /// <summary>The running build's version, for the Settings footer.</summary>
     private static string CurrentVersion =>
         (System.Reflection.Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0)).ToString(3);
+
+    public string VersionLabel => $"Version {CurrentVersion}";
 
     /// <summary>
     /// True for the MSIX (Store) build, false for the portable zip. Worth
@@ -1772,19 +1770,21 @@ public sealed partial class MainWindow : Window
         RecentThumbs.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
         EmptyState.Visibility = any ? Visibility.Collapsed : Visibility.Visible;
 
-        var cards = recents.Select(r => new RecentCard(r.Path, r.DisplayName)).ToList();
+        var cards = recents.Select(r => new RecentCard(r.Path, r.DisplayName, r.LastOpenedUtc)).ToList();
         RecentThumbs.ItemsSource = cards;
+    }
 
-        // With thumbnails disabled the cards keep their document glyph; with
-        // them enabled each card swaps its glyph for the page-1 render as the
-        // (disk-cached) bitmap arrives.
-        if (_state.Settings.ShowRecentThumbnails)
+    private void RecentRemoveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: RecentCard card })
         {
-            foreach (var card in cards)
-            {
-                _ = LoadThumbnailAsync(card);
-            }
+            return;
         }
+
+        _state.ForgetRecent(card.Path);
+        _thumbnails.Forget(card.Path);
+        _store.Save(_state);
+        PopulateRecents();
     }
 
     private async Task LoadThumbnailAsync(RecentCard card)

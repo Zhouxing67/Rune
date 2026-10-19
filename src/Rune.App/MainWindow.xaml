@@ -374,89 +374,104 @@
                 HorizontalContentAlignment="Stretch"
                 VerticalContentAlignment="Stretch" />
 
-            <!-- Start page: recent documents grid (GNOME Papers recent view) -->
-            <Grid x:Name="StartPage" Padding="32,24,32,0">
+            <!-- Easy PDF-inspired home workspace: actions on the left, compact
+                 recent documents on the right. Rune has no separate page
+                 organizer, so that reference-only entry is intentionally absent. -->
+            <Grid x:Name="StartPage" Padding="72,54,72,44">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="360" />
+                    <ColumnDefinition Width="72" />
+                    <ColumnDefinition Width="*" MinWidth="360" />
+                </Grid.ColumnDefinitions>
 
-                <Grid Grid.Row="0" MaxWidth="936" Margin="0,0,0,16">
-                    <TextBlock
-                        x:Name="RecentsHeader"
-                        Text="Recent documents"
-                        VerticalAlignment="Center"
-                        Style="{StaticResource SubtitleTextBlockStyle}" />
-                    <Button
-                        HorizontalAlignment="Right"
-                        Click="OpenButton_Click"
-                        Style="{StaticResource AccentButtonStyle}">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE8E5;" FontSize="14" />
-                            <TextBlock Text="Open a PDF" />
-                        </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="18" Margin="0,0,0,44">
+                    <Image Source="/Assets/Square150x150Logo.scale-100.png" Width="64" Height="64" />
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock Text="Rune" FontSize="32" FontWeight="SemiBold" />
+                        <TextBlock Text="{x:Bind VersionLabel}" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </StackPanel>
+
+                <StackPanel Grid.Row="1" Grid.Column="0" Spacing="8">
+                    <TextBlock Text="Get started" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,12" />
+                    <Button Height="88" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            Style="{StaticResource AccentButtonStyle}" Click="OpenButton_Click">
+                        <Grid Padding="12,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE8E5;" FontSize="28" VerticalAlignment="Center" Margin="0,0,20,0" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="Open a local PDF" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Choose a file, or drag one into this window" FontSize="13" Opacity="0.82" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="Ctrl + O" FontSize="16" VerticalAlignment="Center" Opacity="0.9" />
+                        </Grid>
                     </Button>
+                    <Button Height="84" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                            CornerRadius="5" Click="SettingsButton_Click">
+                        <Grid Padding="12,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xE713;" FontSize="27" VerticalAlignment="Center" Margin="0,0,20,0" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                <TextBlock Text="Settings" FontSize="17" FontWeight="SemiBold" />
+                                <TextBlock Text="Reading, appearance and application preferences" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                </StackPanel>
+
+                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <TextBlock x:Name="RecentsHeader" Text="Recently opened" FontSize="20"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,136,0,20" />
+                    <ListView x:Name="RecentThumbs" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True"
+                              ItemClick="RecentThumbs_ItemClick" HorizontalContentAlignment="Stretch">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="Margin" Value="0,0,0,8" />
+                                <Setter Property="CornerRadius" Value="5" />
+                            </Style>
+                        </ListView.ItemContainerStyle>
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="controls:RecentCard">
+                                <Grid Height="86" Padding="20,0,10,0" RightTapped="RecentCard_RightTapped">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE8A5;" FontSize="27" VerticalAlignment="Center" Margin="0,0,20,0" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                        <TextBlock Text="{x:Bind DisplayName}" FontSize="15" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                        <TextBlock Text="{x:Bind LastOpenedText}" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                    <Button Grid.Column="2" Width="40" Height="40" Background="Transparent" BorderThickness="0"
+                                            Click="RecentRemoveButton_Click" ToolTipService.ToolTip="Remove from recents"
+                                            AutomationProperties.Name="Remove from recents">
+                                        <FontIcon Glyph="&#xE711;" FontSize="14" />
+                                    </Button>
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <StackPanel x:Name="EmptyState" Grid.Row="1" Spacing="8" HorizontalAlignment="Center"
+                                VerticalAlignment="Center" Visibility="Collapsed">
+                        <FontIcon Glyph="&#xEA90;" FontSize="42" Foreground="{ThemeResource TextFillColorDisabledBrush}" HorizontalAlignment="Center" />
+                        <TextBlock Text="No recent documents" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                        <TextBlock Text="Open a PDF to get started" FontSize="13" HorizontalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
                 </Grid>
 
-                <ScrollViewer Grid.Row="1" HorizontalScrollMode="Disabled">
-                    <GridView
-                        x:Name="RecentThumbs"
-                        MaxWidth="936"
-                        Margin="0,0,0,24"
-                        SelectionMode="None"
-                        IsItemClickEnabled="True"
-                        ItemClick="RecentThumbs_ItemClick">
-                        <GridView.ItemTemplate>
-                            <DataTemplate x:DataType="controls:RecentCard">
-                                <StackPanel Width="168" Margin="0,0,8,8" Spacing="6" RightTapped="RecentCard_RightTapped">
-                                    <Grid Width="168" Height="212" Style="{StaticResource CardSurfaceStyle}">
-                                        <FontIcon
-                                            Glyph="&#xEA90;"
-                                            FontSize="32"
-                                            Foreground="{ThemeResource TextFillColorDisabledBrush}"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            Visibility="{x:Bind ShowPlaceholder, Mode=OneWay}" />
-                                        <!-- Bordered box sized to the page's own aspect ratio: a
-                                             white page on a light card has no visible edge without it. -->
-                                        <Border
-                                            Width="{x:Bind ImageWidth, Mode=OneWay}"
-                                            Height="{x:Bind ImageHeight, Mode=OneWay}"
-                                            HorizontalAlignment="Center"
-                                            VerticalAlignment="Center"
-                                            BorderThickness="1"
-                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                            Visibility="{x:Bind HasThumbnail, Mode=OneWay}">
-                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Fill" />
-                                        </Border>
-                                    </Grid>
-                                    <TextBlock Text="{x:Bind DisplayName}" MaxWidth="168" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                    <TextBlock Text="{x:Bind Folder}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" MaxWidth="168" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,-4,0,0" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </GridView.ItemTemplate>
-                    </GridView>
-                </ScrollViewer>
-
-                <!-- Shown instead of the grid when there is nothing recent. -->
-                <StackPanel
-                    x:Name="EmptyState"
-                    Grid.Row="1"
-                    Spacing="8"
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Visibility="Collapsed">
-                    <FontIcon Glyph="&#xEA90;" FontSize="48" Foreground="{ThemeResource TextFillColorDisabledBrush}" HorizontalAlignment="Center" />
-                    <TextBlock
-                        Text="No recent documents"
-                        Style="{StaticResource BodyStrongTextBlockStyle}"
-                        HorizontalAlignment="Center"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock
-                        Text="Open a PDF to get started"
-                        Style="{StaticResource CaptionTextBlockStyle}"
-                        HorizontalAlignment="Center"
-                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Spacing="18">
+                    <TextBlock Text="Rune — open-source Windows PDF reader" FontSize="13" />
+                    <TextBlock Text="Built with .NET, WinUI 3 and PDFium" FontSize="13"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
             </Grid>
 

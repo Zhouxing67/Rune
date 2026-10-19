@@ -14,11 +14,15 @@ public sealed class RecentCard : INotifyPropertyChanged
     public string Path { get; }
     public string DisplayName { get; }
     public string Folder { get; }
+    public string LastOpenedText { get; }
 
-    public RecentCard(string path, string displayName)
+    public RecentCard(string path, string displayName, DateTime lastOpenedUtc)
     {
         Path = path;
         DisplayName = displayName;
+        LastOpenedText = lastOpenedUtc == default
+            ? "Recently opened"
+            : $"Last opened {lastOpenedUtc.ToLocalTime():yyyy/M/d HH:mm}";
         try
         {
             Folder = System.IO.Path.GetDirectoryName(path) ?? "";
