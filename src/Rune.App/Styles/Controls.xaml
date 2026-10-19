@@ -70,7 +70,6 @@
         <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource SelectionToolbarRadius}" />
-        <Setter Property="Shadow" Value="{ThemeResource FlyoutThemeShadow}" />
     </Style>
 
     <Style x:Key="SelectionToolbarButtonStyle" TargetType="Button">
