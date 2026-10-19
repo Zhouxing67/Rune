@@ -73,6 +73,11 @@
             VerticalAlignment="Top"
             ActionRequested="SelectionActions_ActionRequested" />
 
+        <controls:MarkupAnnotationToolbar
+            x:Name="MarkupActions" Visibility="Collapsed"
+            HorizontalAlignment="Left" VerticalAlignment="Top"
+            ActionRequested="MarkupActions_ActionRequested" />
+
         <controls:SearchOverview
             x:Name="SearchStrip"
             Visibility="Collapsed"

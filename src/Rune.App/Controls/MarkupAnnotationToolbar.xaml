@@ -1,0 +1,10 @@
+<UserControl x:Class="Rune.Controls.MarkupAnnotationToolbar" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource SelectionToolbarSurfaceStyle}" Padding="5,3" Height="40">
+        <StackPanel x:Name="ColourRow" Orientation="Horizontal" Spacing="2">
+            <Border Style="{StaticResource SelectionToolbarSeparatorStyle}" Margin="4,0"/>
+            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Delete_Click" ToolTipService.ToolTip="Delete annotation" AutomationProperties.Name="Delete annotation">
+                <FontIcon Glyph="&#xE74D;" FontSize="15" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+            </Button>
+        </StackPanel>
+    </Border>
+</UserControl>

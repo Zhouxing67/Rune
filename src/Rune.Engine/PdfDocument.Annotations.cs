@@ -13,6 +13,7 @@ public enum MarkupKind
 public sealed record AnnotationInfo(int Index, int Subtype, double X, double Y, double Width, double Height, string Contents)
 {
     public bool IsNote => Subtype == PdfiumNative.AnnotText;
+    public (byte R, byte G, byte B, byte A) Color { get; init; }
 }
 
 /// <summary>
@@ -289,10 +290,12 @@ public sealed partial class PdfDocument
                         var (dx1, dy1) = PdfiumNative.PageToDevice(page, sizeX, sizeY, 0, l, t);
                         var (dx2, dy2) = PdfiumNative.PageToDevice(page, sizeX, sizeY, 0, rr, bb);
                         double x = Math.Min(dx1, dx2), y = Math.Min(dy1, dy2);
+                        PdfiumNative.GetAnnotColor(annot, out byte cr, out byte cg, out byte cb, out byte ca);
                         result.Add(new AnnotationInfo(
                             i, PdfiumNative.GetAnnotSubtype(annot),
                             x, y, Math.Abs(dx2 - dx1), Math.Abs(dy2 - dy1),
-                            PdfiumNative.GetAnnotString(annot, "Contents")));
+                            PdfiumNative.GetAnnotString(annot, "Contents"))
+                        { Color = (cr, cg, cb, ca == 0 ? (byte)255 : ca) });
                     }
                     finally
                     {
@@ -306,6 +309,26 @@ public sealed partial class PdfDocument
             }
         }
         return result;
+    }
+
+    /// <summary>Changes an annotation's standard PDF colour in place.</summary>
+    public void SetAnnotationColor(int pageIndex, int annotationIndex, byte r, byte g, byte b, byte a)
+    {
+        lock (PdfiumLibrary.Lock)
+        {
+            ObjectDisposedException.ThrowIf(_handle == IntPtr.Zero, this);
+            IntPtr page = AcquirePageLocked(pageIndex);
+            if (page == IntPtr.Zero) throw PdfiumNative.LastError();
+            try
+            {
+                IntPtr annot = PdfiumNative.GetAnnot(page, annotationIndex);
+                if (annot == IntPtr.Zero) throw new PdfiumException("Could not open the annotation.", 1);
+                try { PdfiumNative.SetAnnotColor(annot, r, g, b, a); }
+                finally { PdfiumNative.CloseAnnot(annot); }
+            }
+            finally { ReleasePageLocked(pageIndex); }
+        }
+        IsDirty = true;
     }
 
     /// <summary>Updates the interoperable /Contents of an existing annotation.</summary>

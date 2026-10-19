@@ -128,6 +128,7 @@ public sealed partial class PdfViewer : UserControl
     private readonly Dictionary<int, List<SearchHit>> _searchByPage = [];
     private SearchHit? _activeHit;
     private (int Page, AnnotationInfo Info)? _openNote;
+    private (int Page, AnnotationInfo Info)? _openMarkup;
 
     // Annotation tools.
     private AnnotationTool _activeTool = AnnotationTool.None;
@@ -780,6 +781,7 @@ public sealed partial class PdfViewer : UserControl
     private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         HideSelectionToolbar();
+        HideMarkupToolbar();
         // Use the size the event carries, not the ScrollViewer's own (still
         // stale) ViewportWidth/Height — see _sizeChangedViewport.
         _sizeChangedViewport = e.NewSize;
@@ -833,6 +835,7 @@ public sealed partial class PdfViewer : UserControl
     private void Scroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
         HideSelectionToolbar();
+        HideMarkupToolbar();
         CloseNotePopup();
         if (_rebasingZoom)
         {
@@ -2064,14 +2067,25 @@ public sealed partial class PdfViewer : UserControl
         }
         catch { return; }
         if (_document != document) return;
-        var note = HitTestAnnotation(annotations, local.X, local.Y);
-        if (note?.IsNote != true)
+        var hit = HitTestAnnotation(annotations, local.X, local.Y);
+        if (hit is not null && IsTextMarkup(hit.Subtype))
+        {
+            CloseNotePopup();
+            HideSelectionToolbar();
+            _openMarkup = (page, hit);
+            PositionMarkupToolbar(page, hit);
+            MarkupActions.Visibility = Visibility.Visible;
+            e.Handled = true;
+            return;
+        }
+        HideMarkupToolbar();
+        if (hit?.IsNote != true)
         {
             CloseNotePopup();
             return;
         }
-        _openNote = (page, note);
-        NotePopup.ShowText(note.Contents);
+        _openNote = (page, hit);
+        NotePopup.ShowText(hit.Contents);
         PositionNotePopup(e.GetPosition(this));
         NotePopup.Visibility = Visibility.Visible;
         NotePopup.Focus(FocusState.Programmatic);
@@ -2148,6 +2162,86 @@ public sealed partial class PdfViewer : UserControl
     {
         _openNote = null;
         NotePopup.Visibility = Visibility.Collapsed;
+    }
+
+    private static bool IsTextMarkup(int subtype) => subtype is
+        (int)MarkupKind.Highlight or (int)MarkupKind.Underline or (int)MarkupKind.Strikeout;
+
+    private void PositionMarkupToolbar(int pageIndex, AnnotationInfo info)
+    {
+        if (_layout is null) return;
+        var page = _layout.GetPageRect(pageIndex);
+        var rotation = RotationFor(pageIndex);
+        var drawn = rotation.ToDrawn(new TextRect(info.X, info.Y, info.Width, info.Height));
+        var transform = Canvas.TransformToVisual(this);
+        Point topLeft = transform.TransformPoint(new Point(page.X + drawn.X * _zoom, page.Y + drawn.Y * _zoom));
+        Point bottomRight = transform.TransformPoint(new Point(page.X + (drawn.X + drawn.Width) * _zoom, page.Y + (drawn.Y + drawn.Height) * _zoom));
+        MarkupActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        double width = MarkupActions.DesiredSize.Width;
+        double height = MarkupActions.DesiredSize.Height;
+        double x = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
+        double y = topLeft.Y - height - 6;
+        if (y < 8) y = bottomRight.Y + 6;
+        MarkupActions.Margin = new Thickness(x, Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8)), 0, 0);
+    }
+
+    private async void MarkupActions_ActionRequested(object? sender, MarkupAnnotationActionEventArgs e)
+    {
+        if (_openMarkup is not { } open || _document is not { } document) return;
+        if (e.Delete)
+        {
+            AnnotationSpec? spec;
+            try
+            {
+                spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+                {
+                    var captured = document.CaptureAnnotation(open.Page, open.Info.Index);
+                    document.RemoveAnnotation(open.Page, open.Info.Index);
+                    return captured;
+                });
+            }
+            catch { return; }
+            if (_document != document) return;
+            InvalidatePage(open.Page);
+            DocumentEdited?.Invoke(this, EventArgs.Empty);
+            if (spec is not null)
+            {
+                AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+                {
+                    Label = "delete markup", PageIndex = open.Page,
+                    UndoAction = d => d.AddAnnotationFromSpec(spec),
+                    RedoAction = d => d.RemoveLastAnnotation(open.Page),
+                });
+            }
+            HideMarkupToolbar();
+            return;
+        }
+
+        if (e.Color is not { } color) return;
+        var old = open.Info.Color;
+        byte alpha = open.Info.Subtype == (int)MarkupKind.Highlight ? (old.A == 255 ? (byte)102 : old.A) : (byte)255;
+        try
+        {
+            await _scheduler.RunAsync(PdfWorkPriority.Interactive,
+                () => document.SetAnnotationColor(open.Page, open.Info.Index, color.R, color.G, color.B, alpha));
+        }
+        catch { return; }
+        if (_document != document) return;
+        InvalidatePage(open.Page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+        {
+            Label = "change markup colour", PageIndex = open.Page,
+            UndoAction = d => d.SetAnnotationColor(open.Page, open.Info.Index, old.R, old.G, old.B, old.A),
+            RedoAction = d => d.SetAnnotationColor(open.Page, open.Info.Index, color.R, color.G, color.B, alpha),
+        });
+        _openMarkup = (open.Page, open.Info with { Color = (color.R, color.G, color.B, alpha) });
+    }
+
+    private void HideMarkupToolbar()
+    {
+        _openMarkup = null;
+        MarkupActions.Visibility = Visibility.Collapsed;
     }
 
     // ---------------------------------------------------------------- ink capture
@@ -2490,10 +2584,14 @@ public sealed partial class PdfViewer : UserControl
         if (_selection is not { Rects.Count: > 0 } selection || _layout is null) return;
         var page = _layout.GetPageRect(selection.PageIndex);
         var drawnRects = selection.Rects.Select(r => RotationFor(selection.PageIndex).ToDrawn(r)).ToList();
-        double left = page.X + drawnRects.Min(r => r.X) * _zoom - Scroller.HorizontalOffset;
-        double right = page.X + drawnRects.Max(r => r.X + r.Width) * _zoom - Scroller.HorizontalOffset;
-        double top = page.Y + drawnRects.Min(r => r.Y) * _zoom - Scroller.VerticalOffset;
-        double bottom = page.Y + drawnRects.Max(r => r.Y + r.Height) * _zoom - Scroller.VerticalOffset;
+        var transform = Canvas.TransformToVisual(this);
+        Point topLeft = transform.TransformPoint(new Point(
+            page.X + drawnRects.Min(r => r.X) * _zoom,
+            page.Y + drawnRects.Min(r => r.Y) * _zoom));
+        Point bottomRight = transform.TransformPoint(new Point(
+            page.X + drawnRects.Max(r => r.X + r.Width) * _zoom,
+            page.Y + drawnRects.Max(r => r.Y + r.Height) * _zoom));
+        double left = topLeft.X, right = bottomRight.X, top = topLeft.Y, bottom = bottomRight.Y;
         // The overlay is normally Collapsed, so ActualWidth can still be zero
         // on first show. Measure the real capsule instead of positioning with a
         // stale guessed width; otherwise it visibly drifts on DPI/theme changes.
@@ -2502,8 +2600,8 @@ public sealed partial class PdfViewer : UserControl
         double width = SelectionActions.DesiredSize.Width;
         double height = SelectionActions.DesiredSize.Height;
         double x = Math.Clamp((left + right - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
-        double y = top - height - 8;
-        if (y < 8) y = bottom + 8;
+        double y = top - height - 6;
+        if (y < 8) y = bottom + 6;
         y = Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8));
         SelectionActions.Margin = new Thickness(x, y, 0, 0);
     }

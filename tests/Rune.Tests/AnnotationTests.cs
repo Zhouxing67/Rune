@@ -133,6 +133,31 @@ public class AnnotationTests
     }
 
     [Fact]
+    public void SetAnnotationColor_PersistsForTextMarkup()
+    {
+        string saved = TempPdf();
+        try
+        {
+            using (var doc = PdfDocument.Open(CorpusPath("hello.pdf")))
+            {
+                doc.AddMarkup(0, MarkupKind.Underline, [new TextRect(70, 50, 100, 20)], 200, 0, 0, 255);
+                var annotation = Assert.Single(doc.GetAnnotations(0));
+                doc.SetAnnotationColor(0, annotation.Index, 38, 139, 210, 255);
+                Assert.Equal((byte)38, Assert.Single(doc.GetAnnotations(0)).Color.R);
+                doc.SaveAs(saved);
+            }
+
+            using var reopened = PdfDocument.Open(saved);
+            var color = Assert.Single(reopened.GetAnnotations(0)).Color;
+            Assert.Equal(((byte)38, (byte)139, (byte)210), (color.R, color.G, color.B));
+        }
+        finally
+        {
+            File.Delete(saved);
+        }
+    }
+
+    [Fact]
     public void AddInk_SaveAs_Reopen_InkAnnotationPersists()
     {
         string saved = TempPdf();
