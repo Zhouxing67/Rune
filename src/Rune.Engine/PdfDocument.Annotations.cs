@@ -228,10 +228,11 @@ public sealed partial class PdfDocument
 
                     // Compact Fluent-style marker. The viewer keeps a larger
                     // hit target, so the smaller visual does not cost usability.
-                    const float size = 14f;
+                    const float size = 11f;
                     PdfiumNative.SetAnnotRect(annot, (float)px, (float)py - size, (float)px + size, (float)py);
                     PdfiumNative.SetAnnotString(annot, "Contents", text);
-                    PdfiumNative.SetAnnotColor(annot, 255, 200, 0, 255);
+                    // Softer Fluent amber avoids PDFium's harsh neon marker.
+                    PdfiumNative.SetAnnotColor(annot, 255, 185, 55, 255);
                     PdfiumNative.SetAnnotPrintFlag(annot);
                 }
                 finally

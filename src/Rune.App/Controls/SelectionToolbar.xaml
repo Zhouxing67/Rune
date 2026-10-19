@@ -1,33 +1,21 @@
-<UserControl
-    x:Class="Rune.Controls.SelectionToolbar"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Border Style="{StaticResource SelectionToolbarSurfaceStyle}"
-            Padding="5,3" Height="{StaticResource SelectionToolbarHeight}">
-        <StackPanel Orientation="Horizontal" Spacing="0" VerticalAlignment="Center">
-            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Highlight_Click"
-                    AutomationProperties.Name="Highlight selection" ToolTipService.ToolTip="Highlight">
-                <FontIcon Glyph="&#xE891;" FontSize="{StaticResource SelectionToolbarGlyphSize}"
-                          Foreground="{ThemeResource SystemFillColorCautionBrush}" />
-            </Button>
-            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Underline_Click"
-                    AutomationProperties.Name="Underline selection" ToolTipService.ToolTip="Underline">
-                <FontIcon Glyph="&#xE8DC;" FontSize="{StaticResource SelectionToolbarGlyphSize}" />
-            </Button>
-            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Strikeout_Click"
-                    AutomationProperties.Name="Strike out selection" ToolTipService.ToolTip="Strikeout">
-                <FontIcon Glyph="&#xE8D2;" FontSize="{StaticResource SelectionToolbarGlyphSize}" />
-            </Button>
-            <Border Style="{StaticResource SelectionToolbarSeparatorStyle}" />
-            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Copy_Click"
-                    AutomationProperties.Name="Copy selection" ToolTipService.ToolTip="Copy (Ctrl+C)">
-                <FontIcon Glyph="&#xE8C8;" FontSize="{StaticResource SelectionToolbarGlyphSize}" />
-            </Button>
-            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Note_Click"
-                    AutomationProperties.Name="Add note to selection" ToolTipService.ToolTip="Add note">
-                <FontIcon Glyph="&#xE70B;" FontSize="{StaticResource SelectionToolbarGlyphSize}"
-                          Foreground="{ThemeResource SystemFillColorCautionBrush}" />
-            </Button>
+<UserControl x:Class="Rune.Controls.SelectionToolbar" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource SelectionToolbarSurfaceStyle}" Padding="5,3" Height="{StaticResource SelectionToolbarHeight}">
+        <StackPanel Orientation="Horizontal" Spacing="1" VerticalAlignment="Center">
+            <Border Style="{StaticResource SelectionToolbarToolGroupStyle}"><StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Highlight_Click" AutomationProperties.Name="Highlight selection" ToolTipService.ToolTip="Highlight with selected colour"><Grid Width="18" Height="18"><FontIcon Glyph="&#xE891;" FontSize="16"/><Border x:Name="HighlightColourIndicator" Height="3" CornerRadius="1.5" VerticalAlignment="Bottom" Margin="2,0"/></Grid></Button>
+                <Button x:Name="HighlightColourButton" Style="{StaticResource SelectionToolbarDropDownButtonStyle}" Click="HighlightColour_Click" AutomationProperties.Name="Choose highlight colour" ToolTipService.ToolTip="Highlight colour"><FontIcon Glyph="&#xE70D;" FontSize="8"/></Button>
+            </StackPanel></Border>
+            <Border Style="{StaticResource SelectionToolbarToolGroupStyle}"><StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Underline_Click" AutomationProperties.Name="Underline selection" ToolTipService.ToolTip="Underline with selected colour"><Grid Width="18" Height="18"><FontIcon Glyph="&#xE8DC;" FontSize="16"/><Border x:Name="UnderlineColourIndicator" Height="3" CornerRadius="1.5" VerticalAlignment="Bottom" Margin="2,0"/></Grid></Button>
+                <Button x:Name="UnderlineColourButton" Style="{StaticResource SelectionToolbarDropDownButtonStyle}" Click="UnderlineColour_Click" AutomationProperties.Name="Choose underline colour" ToolTipService.ToolTip="Underline colour"><FontIcon Glyph="&#xE70D;" FontSize="8"/></Button>
+            </StackPanel></Border>
+            <Border Style="{StaticResource SelectionToolbarToolGroupStyle}"><StackPanel Orientation="Horizontal">
+                <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Strikeout_Click" AutomationProperties.Name="Strike out selection" ToolTipService.ToolTip="Strike out with selected colour"><Grid Width="18" Height="18"><FontIcon Glyph="&#xE8D2;" FontSize="16"/><Border x:Name="StrikeoutColourIndicator" Height="3" CornerRadius="1.5" VerticalAlignment="Bottom" Margin="2,0"/></Grid></Button>
+                <Button x:Name="StrikeoutColourButton" Style="{StaticResource SelectionToolbarDropDownButtonStyle}" Click="StrikeoutColour_Click" AutomationProperties.Name="Choose strikeout colour" ToolTipService.ToolTip="Strikeout colour"><FontIcon Glyph="&#xE70D;" FontSize="8"/></Button>
+            </StackPanel></Border>
+            <Border Style="{StaticResource SelectionToolbarSeparatorStyle}"/>
+            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Copy_Click" AutomationProperties.Name="Copy selection" ToolTipService.ToolTip="Copy (Ctrl+C)"><FontIcon Glyph="&#xE8C8;" FontSize="16"/></Button>
+            <Button Style="{StaticResource SelectionToolbarButtonStyle}" Click="Note_Click" AutomationProperties.Name="Add note to selection" ToolTipService.ToolTip="Add note"><FontIcon Glyph="&#xE70B;" FontSize="14"/></Button>
         </StackPanel>
     </Border>
 </UserControl>

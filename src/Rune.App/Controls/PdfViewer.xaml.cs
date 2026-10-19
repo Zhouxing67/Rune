@@ -2457,18 +2457,18 @@ public sealed partial class PdfViewer : UserControl
         SearchHitInvoked?.Invoke(this, hit);
     }
 
-    private void SelectionActions_ActionRequested(object? sender, SelectionToolbarAction action)
+    private void SelectionActions_ActionRequested(object? sender, SelectionToolbarActionEventArgs e)
     {
-        switch (action)
+        switch (e.Action)
         {
             case SelectionToolbarAction.Highlight:
-                MarkupSelection(MarkupKind.Highlight);
+                MarkupSelection(MarkupKind.Highlight, e.Color ?? Color.FromArgb(255, 255, 210, 0), e.Alpha);
                 break;
             case SelectionToolbarAction.Underline:
-                MarkupSelection(MarkupKind.Underline);
+                MarkupSelection(MarkupKind.Underline, e.Color ?? Color.FromArgb(255, 38, 139, 210), e.Alpha);
                 break;
             case SelectionToolbarAction.Strikeout:
-                MarkupSelection(MarkupKind.Strikeout);
+                MarkupSelection(MarkupKind.Strikeout, e.Color ?? Color.FromArgb(255, 220, 55, 70), e.Alpha);
                 break;
             case SelectionToolbarAction.Copy:
                 CopySelectionToClipboard();

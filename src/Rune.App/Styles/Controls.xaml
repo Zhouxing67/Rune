@@ -84,6 +84,15 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
+    <Style x:Key="SelectionToolbarDropDownButtonStyle" TargetType="Button" BasedOn="{StaticResource SelectionToolbarButtonStyle}">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="CornerRadius" Value="3" />
+    </Style>
+
+    <Style x:Key="SelectionToolbarToolGroupStyle" TargetType="Border">
+        <Setter Property="CornerRadius" Value="5" />
+    </Style>
+
     <Style x:Key="SelectionToolbarSeparatorStyle" TargetType="Border">
         <Setter Property="Width" Value="1" />
         <Setter Property="Height" Value="20" />
