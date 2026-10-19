@@ -157,8 +157,6 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Raised when the armed tool changes, so the toolbar can re-sync its buttons.</summary>
     public event EventHandler<AnnotationTool>? ActiveToolChanged;
     public event EventHandler? HistoryChanged;
-    public event EventHandler<SearchHit>? SearchHitInvoked;
-
     /// <summary>Raised when the user clicks an external (URI) link. The shell decides whether to open it.</summary>
     public event EventHandler<string>? LinkActivated;
 
@@ -465,7 +463,6 @@ public sealed partial class PdfViewer : UserControl
         _activeHit = null;
         CloseNotePopup();
         HideSelectionToolbar();
-        SearchStrip.SetResults([], [], null);
 
         _scheduler.SetDocument(document);
         ClearCaches();
@@ -2500,7 +2497,6 @@ public sealed partial class PdfViewer : UserControl
             }
             list.Add(hit);
         }
-        SearchStrip.SetResults(hits, _pageSizes, _activeHit);
         Canvas.Invalidate();
     }
 
@@ -2508,7 +2504,6 @@ public sealed partial class PdfViewer : UserControl
     public void HighlightHit(SearchHit hit)
     {
         _activeHit = hit;
-        SearchStrip.SetActive(hit);
         if (_layout is not null && hit.Rects.Count > 0)
         {
             var pageRect = _layout.GetPageRect(hit.PageIndex);
@@ -2527,7 +2522,6 @@ public sealed partial class PdfViewer : UserControl
     {
         _searchByPage.Clear();
         _activeHit = null;
-        SearchStrip.SetResults([], _pageSizes, null);
         Canvas.Invalidate();
     }
 
@@ -2545,12 +2539,6 @@ public sealed partial class PdfViewer : UserControl
         int end = Math.Min(text.Text.Length, hit.CharIndex + hit.Length + context);
         string snippet = text.Text[start..end].Replace('\r', ' ').Replace('\n', ' ').Trim();
         return $"{(start > 0 ? "…" : "")}{snippet}{(end < text.Text.Length ? "…" : "")}";
-    }
-
-    private void SearchStrip_HitInvoked(object sender, SearchHit hit)
-    {
-        HighlightHit(hit);
-        SearchHitInvoked?.Invoke(this, hit);
     }
 
     private void SelectionActions_ActionRequested(object? sender, SelectionToolbarActionEventArgs e)

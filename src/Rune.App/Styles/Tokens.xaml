@@ -66,7 +66,6 @@
     <x:Double x:Key="SelectionToolbarGap">8</x:Double>
     <CornerRadius x:Key="SelectionToolbarRadius">4</CornerRadius>
     <CornerRadius x:Key="SelectionToolbarButtonRadius">6</CornerRadius>
-    <x:Double x:Key="SearchOverviewWidth">18</x:Double>
     <x:Double x:Key="SearchResultPanelWidth">360</x:Double>
     <x:Double x:Key="NoteMarkerVisualSize">14</x:Double>
     <x:Double x:Key="NoteMarkerHitSize">28</x:Double>

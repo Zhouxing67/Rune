@@ -574,7 +574,6 @@ public sealed partial class MainWindow : Window
             _activeViewer.ZoomChanged -= Viewer_ZoomChanged;
             _activeViewer.InkStrokeStarted -= Viewer_InkStrokeStarted;
             _activeViewer.HistoryChanged -= Viewer_HistoryChanged;
-            _activeViewer.SearchHitInvoked -= Viewer_SearchHitInvoked;
         }
 
         _activeViewer = CurrentView?.Viewer;
@@ -585,7 +584,6 @@ public sealed partial class MainWindow : Window
             _activeViewer.ZoomChanged += Viewer_ZoomChanged;
             _activeViewer.InkStrokeStarted += Viewer_InkStrokeStarted;
             _activeViewer.HistoryChanged += Viewer_HistoryChanged;
-            _activeViewer.SearchHitInvoked += Viewer_SearchHitInvoked;
         }
         UpdateHistoryButtons();
 
@@ -619,16 +617,6 @@ public sealed partial class MainWindow : Window
     }
 
     private void Viewer_HistoryChanged(object? sender, EventArgs e) => UpdateHistoryButtons();
-
-    private void Viewer_SearchHitInvoked(object? sender, SearchHit hit)
-    {
-        int index = _searchHits.FindIndex(h => h == hit);
-        if (index < 0) return;
-        _activeHitIndex = index;
-        FindResultsList.SelectedIndex = index;
-        FindResultsList.ScrollIntoView(FindResultsList.SelectedItem);
-        UpdateFindCount();
-    }
 
     private void UpdateHistoryButtons()
     {

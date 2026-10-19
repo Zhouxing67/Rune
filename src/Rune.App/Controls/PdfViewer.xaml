@@ -78,14 +78,6 @@
             HorizontalAlignment="Left" VerticalAlignment="Top"
             ActionRequested="MarkupActions_ActionRequested" />
 
-        <controls:SearchOverview
-            x:Name="SearchStrip"
-            Visibility="Collapsed"
-            HorizontalAlignment="Right"
-            VerticalAlignment="Stretch"
-            Margin="0,6,14,6"
-            HitInvoked="SearchStrip_HitInvoked" />
-
         <controls:NoteCard x:Name="NotePopup" Visibility="Collapsed"
                            HorizontalAlignment="Left" VerticalAlignment="Top"
                            SaveRequested="NotePopup_SaveRequested"
