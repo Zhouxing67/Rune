@@ -51,13 +51,16 @@
                     Padding="10,2"
                     MinHeight="{StaticResource TouchTargetMin}"
                     MinWidth="{StaticResource TouchTargetMin}"
-                    Background="Transparent"
-                    BorderThickness="0"
+                    Background="{ThemeResource SystemFillColorCriticalBrush}"
+                    BorderBrush="{ThemeResource SystemFillColorCriticalBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4"
                     AutomationProperties.Name="Home" ToolTipService.ToolTip="Home — recent documents">
                     <TextBlock
                         Text="Rune"
                         Style="{StaticResource CaptionTextBlockStyle}"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
                 </Button>
             </TabView.TabStripHeader>
             <TabView.TabStripFooter>
