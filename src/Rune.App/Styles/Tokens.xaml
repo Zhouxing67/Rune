@@ -56,7 +56,9 @@
 
     <!-- Homepage cards -->
     <Thickness x:Key="HomePagePadding">72,64,72,44</Thickness>
-    <x:Double x:Key="HomeColumnGap">56</x:Double>
+    <!-- ColumnDefinition.Width requires GridLength. A Double compiles but
+         throws XamlParseException while MainWindow is being constructed. -->
+    <GridLength x:Key="HomeColumnGap">56</GridLength>
     <x:Double x:Key="HomeCardHeight">74</x:Double>
     <x:Double x:Key="CardWidth">168</x:Double>
     <x:Double x:Key="CardHeight">212</x:Double>
