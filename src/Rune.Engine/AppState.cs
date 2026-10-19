@@ -30,6 +30,7 @@ public sealed class SessionState
 {
     public List<string> OpenPaths { get; set; } = [];
     public int ActiveIndex { get; set; }
+    public string? ActivePath { get; set; }
 }
 
 /// <summary>User preferences, persisted with the rest of the app state.</summary>
@@ -201,6 +202,10 @@ public sealed class AppState
     {
         int removed = Recents.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
         Session.OpenPaths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        if (string.Equals(Session.ActivePath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            Session.ActivePath = null;
+        }
         return removed > 0;
     }
 
@@ -209,6 +214,7 @@ public sealed class AppState
     {
         Recents.Clear();
         Session.OpenPaths.Clear();
+        Session.ActivePath = null;
     }
 
     /// <summary>

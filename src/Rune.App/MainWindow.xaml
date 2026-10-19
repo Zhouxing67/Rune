@@ -37,9 +37,9 @@
             AddTabButtonClick="Tabs_AddTabButtonClick"
             TabCloseRequested="Tabs_TabCloseRequested">
             <TabView.TabStripHeader>
-                <!-- The wordmark doubles as a Home button: it shows the recents
-                     screen without closing anything, and toggles back to the
-                     document you were reading. -->
+                <!-- The wordmark is an idempotent Home button: it shows the
+                     recents screen without closing any document. Returning to
+                     a PDF always requires choosing its tab explicitly. -->
                 <!-- MinHeight/MinWidth because the caption-sized wordmark alone
                      gave it a target about 20px tall, and it is the only way
                      back to the recents screen. -->
@@ -373,6 +373,25 @@
                 x:Name="DocHost"
                 HorizontalContentAlignment="Stretch"
                 VerticalContentAlignment="Stretch" />
+
+            <!-- A newly selected lazy tab used to present an empty page until
+                 PDFium finished opening it, which looked like an ignored click.
+                 Keep the selection response visible without blocking the tab
+                 strip or pretending that the document is already ready. -->
+            <Grid
+                x:Name="TabLoadingOverlay"
+                Visibility="Collapsed"
+                Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+                IsHitTestVisible="False">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <ProgressRing IsActive="True" Width="28" Height="28" />
+                    <TextBlock
+                        x:Name="TabLoadingLabel"
+                        Text="Opening document…"
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Grid>
 
             <!-- Easy PDF-inspired home workspace: actions on the left, compact
                  recent documents on the right. Rune has no separate page

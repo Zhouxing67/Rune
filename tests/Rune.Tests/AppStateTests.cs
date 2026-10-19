@@ -66,7 +66,12 @@ public class AppStateTests
             var store = new AppStateStore(dir);
             var state = new AppState();
             state.Remember(@"C:\doc.pdf", "doc.pdf", 12, 1.25, 2, 0.33);
-            state.Session = new SessionState { OpenPaths = [@"C:\doc.pdf"], ActiveIndex = 0 };
+            state.Session = new SessionState
+            {
+                OpenPaths = [@"C:\doc.pdf"],
+                ActiveIndex = 0,
+                ActivePath = @"C:\doc.pdf",
+            };
             store.Save(state);
 
             var reloaded = new AppStateStore(dir).Load();
@@ -76,6 +81,7 @@ public class AppStateTests
             Assert.Equal(1.25, reloaded.Recents[0].Zoom);
             Assert.Equal(2, reloaded.Recents[0].Rotation);
             Assert.Equal([@"C:\doc.pdf"], reloaded.Session.OpenPaths);
+            Assert.Equal(@"C:\doc.pdf", reloaded.Session.ActivePath);
         }
         finally
         {
@@ -136,12 +142,14 @@ public class AppStateTests
         state.Remember(@"C:\docs\keep.pdf", "keep", 0, 1, 0, 0);
         state.Remember(@"C:\docs\forget.pdf", "forget", 0, 1, 0, 0);
         state.Session.OpenPaths.AddRange([@"C:\docs\keep.pdf", @"C:\docs\forget.pdf"]);
+        state.Session.ActivePath = @"C:\docs\forget.pdf";
 
         Assert.True(state.ForgetRecent(@"C:\docs\forget.pdf"));
 
         // Leaving it in the session would reopen it as a tab on next launch —
         // which is exactly the file the user asked to be forgotten.
         Assert.DoesNotContain(@"C:\docs\forget.pdf", state.Session.OpenPaths);
+        Assert.Null(state.Session.ActivePath);
         Assert.Null(state.FindRecent(@"C:\docs\forget.pdf"));
         Assert.NotNull(state.FindRecent(@"C:\docs\keep.pdf"));
     }
@@ -180,10 +188,12 @@ public class AppStateTests
         state.Remember(@"C:\a.pdf", "a", 0, 1, 0, 0);
         state.Remember(@"C:\b.pdf", "b", 0, 1, 0, 0);
         state.Session.OpenPaths.Add(@"C:\a.pdf");
+        state.Session.ActivePath = @"C:\a.pdf";
 
         state.ForgetAllRecents();
 
         Assert.Empty(state.Recents);
         Assert.Empty(state.Session.OpenPaths);
+        Assert.Null(state.Session.ActivePath);
     }
 }

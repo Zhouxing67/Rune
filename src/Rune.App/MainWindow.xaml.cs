@@ -30,7 +30,17 @@ public sealed partial class MainWindow : Window
     private PdfViewer? _activeViewer;
     private bool _suppressPageBox;
     private bool _restoringSession;
+    private bool _suppressTabSelection;
     private long _tabSelectionGeneration;
+    private readonly HashSet<TabViewItem> _closingTabs = [];
+
+    private enum WorkspaceMode
+    {
+        Home,
+        Document,
+    }
+
+    private WorkspaceMode _workspaceMode = WorkspaceMode.Home;
 
     // Find-in-document state.
     private CancellationTokenSource? _searchCts;
@@ -239,7 +249,16 @@ public sealed partial class MainWindow : Window
 
             if (Tabs.TabItems.Count > 0)
             {
-                int active = Math.Clamp(_state.Session.ActiveIndex, 0, Tabs.TabItems.Count - 1);
+                int active = -1;
+                if (!string.IsNullOrWhiteSpace(_state.Session.ActivePath))
+                {
+                    active = paths.FindIndex(path => string.Equals(
+                        path, _state.Session.ActivePath, StringComparison.OrdinalIgnoreCase));
+                }
+                if (active < 0)
+                {
+                    active = Math.Clamp(_state.Session.ActiveIndex, 0, Tabs.TabItems.Count - 1);
+                }
                 Tabs.SelectedIndex = active;
             }
         }
@@ -272,6 +291,7 @@ public sealed partial class MainWindow : Window
         {
             OpenPaths = openPaths,
             ActiveIndex = Math.Max(0, Tabs.SelectedIndex),
+            ActivePath = CurrentView?.FilePath,
         };
         _store.Save(_state);
         _thumbnails.Dispose(); // stops the homepage cache's PDFium thread
@@ -360,39 +380,82 @@ public sealed partial class MainWindow : Window
     /// <summary>Opens a path in a new tab, or activates the existing tab if already open.</summary>
     private async void OpenOrActivate(string path)
     {
-        foreach (var obj in Tabs.TabItems)
+        try
         {
-            if (obj is TabViewItem { Tag: DocumentView v } tabItem &&
-                string.Equals(v.FilePath, path, StringComparison.OrdinalIgnoreCase))
+            foreach (var obj in Tabs.TabItems)
             {
-                bool alreadySelected = ReferenceEquals(Tabs.SelectedItem, tabItem);
-                Tabs.SelectedItem = tabItem;
-                _showHome = false;
-                UpdateStartPageVisibility();
-                if (alreadySelected)
+                if (obj is TabViewItem { Tag: DocumentView v } tabItem &&
+                    string.Equals(v.FilePath, path, StringComparison.OrdinalIgnoreCase))
                 {
-                    await ActivateSelectedTabAsync();
+                    bool alreadySelected = ReferenceEquals(Tabs.SelectedItem, tabItem);
+                    Tabs.SelectedItem = tabItem;
+                    if (alreadySelected)
+                    {
+                        await ActivateTabAsync(tabItem);
+                    }
+                    return;
                 }
-                return;
             }
-        }
 
-        AddTab(path, _state.FindRecent(path), select: true);
-        UpdateStartPageVisibility();
+            AddTab(path, _state.FindRecent(path), select: true);
+            UpdateStartPageVisibility();
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Default.Write(nameof(OpenOrActivate), ex);
+            ShowError($"Couldn't open the tab: {ex.Message}");
+        }
     }
 
     private async void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        await ActivateSelectedTabAsync();
+        if (_suppressTabSelection)
+        {
+            return;
+        }
+
+        try
+        {
+            if (Tabs.SelectedItem is TabViewItem tab)
+            {
+                await ActivateTabAsync(tab);
+            }
+            else if (Tabs.TabItems.Count == 0)
+            {
+                ShowHome();
+            }
+        }
+        catch (Exception ex)
+        {
+            ErrorLog.Default.Write(nameof(Tabs_SelectionChanged), ex);
+            ShowError($"Couldn't switch tabs: {ex.Message}");
+        }
     }
 
-    private async Task ActivateSelectedTabAsync()
+    private async Task ActivateTabAsync(TabViewItem tab)
     {
+        if (!Tabs.TabItems.Contains(tab) || tab.Tag is not DocumentView view)
+        {
+            return;
+        }
+
+        // Programmatic activation and a click on the already selected tab use
+        // this same path. Changing selection first lets TabView update its own
+        // visual state; SelectionChanged will call us back for a different tab.
+        if (!ReferenceEquals(Tabs.SelectedItem, tab))
+        {
+            Tabs.SelectedItem = tab;
+            return;
+        }
+
         long generation = ++_tabSelectionGeneration;
-        DocumentView? view = CurrentView;
-        DocHost.Content = CurrentView;
-        HookActiveViewer();
-        _showHome = false; // picking a tab is a request to read it
+        _workspaceMode = WorkspaceMode.Document;
+        DocHost.Content = view;
+        HookActiveViewer(view.Viewer);
+        TabLoadingLabel.Text = $"Opening {view.DisplayName}…";
+        TabLoadingOverlay.Visibility = view.IsDocumentLoaded
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         UpdateStartPageVisibility();
 
         if (!_restoringSession && view is not null)
@@ -403,10 +466,13 @@ public sealed partial class MainWindow : Window
         // A slower tab may finish after the user has selected another one.
         // Its own view can keep the loaded document, but it must not update the
         // shell that now belongs to the newer selection.
-        if (generation != _tabSelectionGeneration || view != CurrentView)
+        if (generation != _tabSelectionGeneration ||
+            _workspaceMode != WorkspaceMode.Document ||
+            !ReferenceEquals(tab, Tabs.SelectedItem))
         {
             return;
         }
+        TabLoadingOverlay.Visibility = Visibility.Collapsed;
         UpdateToolbarForActive();
     }
 
@@ -461,31 +527,53 @@ public sealed partial class MainWindow : Window
     private void Tabs_AddTabButtonClick(TabView sender, object args) => OpenButton_Click(sender, null!);
 
     private async void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
-        => await CloseTabWithPromptAsync(args.Tab);
-
-    private async Task CloseTabWithPromptAsync(TabViewItem tab)
     {
-        if (tab.Tag is DocumentView { IsDirty: true } dirtyView)
+        try
         {
-            var choice = await PromptSaveChangesAsync(dirtyView.DisplayName);
-            if (choice is null)
-            {
-                return; // cancelled
-            }
-            if (choice == true)
-            {
-                try
-                {
-                    await dirtyView.SaveInPlaceAsync();
-                }
-                catch (Exception ex)
-                {
-                    ShowError($"Save failed: {ex.Message}");
-                    return;
-                }
-            }
+            await RequestCloseTabAsync(args.Tab);
         }
-        CloseTab(tab);
+        catch (Exception ex)
+        {
+            ErrorLog.Default.Write(nameof(Tabs_TabCloseRequested), ex);
+            ShowError($"Couldn't close the tab: {ex.Message}");
+        }
+    }
+
+    private async Task RequestCloseTabAsync(TabViewItem tab)
+    {
+        if (!Tabs.TabItems.Contains(tab) || !_closingTabs.Add(tab))
+        {
+            return;
+        }
+
+        try
+        {
+            if (tab.Tag is DocumentView { IsDirty: true } dirtyView)
+            {
+                var choice = await PromptSaveChangesAsync(dirtyView.DisplayName);
+                if (choice is null)
+                {
+                    return; // cancelled
+                }
+                if (choice == true)
+                {
+                    try
+                    {
+                        await dirtyView.SaveInPlaceAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowError($"Save failed: {ex.Message}");
+                        return;
+                    }
+                }
+            }
+            CloseTab(tab);
+        }
+        finally
+        {
+            _closingTabs.Remove(tab);
+        }
     }
 
     /// <summary>true = save, false = discard, null = cancel.</summary>
@@ -511,6 +599,28 @@ public sealed partial class MainWindow : Window
 
     private void CloseTab(TabViewItem tab)
     {
+        int closingIndex = Tabs.TabItems.IndexOf(tab);
+        bool wasSelected = ReferenceEquals(Tabs.SelectedItem, tab);
+        TabViewItem? successor = null;
+        if (wasSelected && Tabs.TabItems.Count > 1)
+        {
+            int successorIndex = closingIndex < Tabs.TabItems.Count - 1
+                ? closingIndex + 1
+                : closingIndex - 1;
+            successor = Tabs.TabItems[successorIndex] as TabViewItem;
+        }
+
+        // Select the successor before disposing the active view. This prevents
+        // DocHost from temporarily pointing at a closed viewer.
+        if (successor is not null && _workspaceMode == WorkspaceMode.Document)
+        {
+            Tabs.SelectedItem = successor;
+        }
+        else if (wasSelected && successor is null)
+        {
+            ShowHome();
+        }
+
         if (tab.Tag is DocumentView view)
         {
             CaptureState(view);
@@ -522,7 +632,22 @@ public sealed partial class MainWindow : Window
             _pendingRestore.Remove(view);
             _tabLoadFinalized.Remove(view);
         }
-        Tabs.TabItems.Remove(tab);
+        // While Home is visible, removing its still-selected background tab
+        // must not make TabView's automatic successor selection leave Home.
+        bool suppressSelection = _workspaceMode == WorkspaceMode.Home;
+        _suppressTabSelection = suppressSelection;
+        try
+        {
+            Tabs.TabItems.Remove(tab);
+            if (wasSelected && successor is not null && suppressSelection)
+            {
+                Tabs.SelectedItem = successor;
+            }
+        }
+        finally
+        {
+            _suppressTabSelection = false;
+        }
         UpdateStartPageVisibility();
     }
 
@@ -530,27 +655,23 @@ public sealed partial class MainWindow : Window
         (Tabs.SelectedItem as TabViewItem)?.Tag as DocumentView;
 
     /// <summary>
-    /// True while the Home button is showing the recents screen over open tabs.
-    /// Without this the start page would only ever appear with no tabs at all.
-    /// </summary>
-    private bool _showHome;
-
-    /// <summary>
-    /// The wordmark toggles Home. Tabs stay open the whole time, so this is a
-    /// view switch, not a close — and clicking any tab also returns you.
+    /// Home is a navigation destination, not a toggle. Open tabs remain in the
+    /// strip, but no hidden PDF stays active or receives keyboard commands.
     /// </summary>
     private void HomeButton_Click(object sender, RoutedEventArgs e)
     {
-        if (Tabs.TabItems.Count == 0)
-        {
-            return; // already home; nothing to toggle back to
-        }
-        _showHome = !_showHome;
+        ShowHome();
+    }
+
+    private void ShowHome()
+    {
+        _workspaceMode = WorkspaceMode.Home;
+        ++_tabSelectionGeneration; // invalidate an in-flight activation
+        HideFindBar();
+        HookActiveViewer(null);
+        TabLoadingOverlay.Visibility = Visibility.Collapsed;
         UpdateStartPageVisibility();
-        if (!_showHome)
-        {
-            UpdateToolbarForActive();
-        }
+        Title = "Rune";
     }
 
     /// <summary>
@@ -564,7 +685,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void Tabs_PointerPressed(object sender, PointerRoutedEventArgs e)
     {
-        if (!_showHome || Tabs.TabItems.Count == 0)
+        if (_workspaceMode != WorkspaceMode.Home || Tabs.TabItems.Count == 0)
         {
             return;
         }
@@ -572,27 +693,48 @@ public sealed partial class MainWindow : Window
         // Only an actual tab should dismiss Home. The previous broad handler
         // also reacted to the + button, close glyph and title-bar drag space.
         DependencyObject? node = e.OriginalSource as DependencyObject;
-        while (node is not null && node is not TabViewItem)
+        TabViewItem? clickedTab = null;
+        while (node is not null && node != Tabs)
         {
+            // A close glyph is a Button inside the TabViewItem. It closes the
+            // background tab and must not also navigate away from Home.
+            if (node is Button)
+            {
+                return;
+            }
+            if (node is TabViewItem item)
+            {
+                clickedTab = item;
+                break;
+            }
             node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
         }
-        if (node is not TabViewItem clickedTab) return;
+        if (clickedTab is null) return;
 
         bool alreadySelected = ReferenceEquals(clickedTab, Tabs.SelectedItem);
-        _showHome = false;
-        UpdateStartPageVisibility();
         if (alreadySelected)
         {
             // Native TabView raises no SelectionChanged for the selected tab.
             // Run after PointerPressed so its own input processing completes.
-            DispatcherQueue.TryEnqueue(() => _ = ActivateSelectedTabAsync());
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await ActivateTabAsync(clickedTab);
+                }
+                catch (Exception ex)
+                {
+                    ErrorLog.Default.Write(nameof(Tabs_PointerPressed), ex);
+                    ShowError($"Couldn't switch tabs: {ex.Message}");
+                }
+            });
         }
     }
 
     private void UpdateStartPageVisibility()
     {
         bool hasTabs = Tabs.TabItems.Count > 0;
-        bool showDocument = hasTabs && !_showHome;
+        bool showDocument = hasTabs && _workspaceMode == WorkspaceMode.Document;
 
         StartPage.Visibility = showDocument ? Visibility.Collapsed : Visibility.Visible;
         DocHost.Visibility = showDocument ? Visibility.Visible : Visibility.Collapsed;
@@ -609,7 +751,7 @@ public sealed partial class MainWindow : Window
 
     // ---------------------------------------------------------------- active viewer wiring
 
-    private void HookActiveViewer()
+    private void HookActiveViewer(PdfViewer? viewer)
     {
         if (_activeViewer is not null)
         {
@@ -619,7 +761,7 @@ public sealed partial class MainWindow : Window
             _activeViewer.HistoryChanged -= Viewer_HistoryChanged;
         }
 
-        _activeViewer = CurrentView?.Viewer;
+        _activeViewer = viewer;
 
         if (_activeViewer is not null)
         {
@@ -630,7 +772,7 @@ public sealed partial class MainWindow : Window
         }
         UpdateHistoryButtons();
 
-        if (CurrentView is { } view)
+        if (_workspaceMode == WorkspaceMode.Document && CurrentView is { } view)
         {
             string name = view.DisplayName;
             Title = $"{name} — Rune";
@@ -672,7 +814,7 @@ public sealed partial class MainWindow : Window
 
     private void UpdateToolbarForActive()
     {
-        var view = CurrentView;
+        var view = _workspaceMode == WorkspaceMode.Document ? CurrentView : null;
         bool ready = view is { IsDocumentLoaded: true, LoadError: null };
         var viewer = ready ? view!.Viewer : null;
 
@@ -2211,11 +2353,19 @@ public sealed partial class MainWindow : Window
             .GetKeyStateForCurrentThread(key)
             .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
 
-    private void CloseCurrentTab()
+    private async void CloseCurrentTab()
     {
-        if (Tabs.SelectedItem is TabViewItem tab)
+        if (_workspaceMode == WorkspaceMode.Document && Tabs.SelectedItem is TabViewItem tab)
         {
-            CloseTab(tab);
+            try
+            {
+                await RequestCloseTabAsync(tab);
+            }
+            catch (Exception ex)
+            {
+                ErrorLog.Default.Write(nameof(CloseCurrentTab), ex);
+                ShowError($"Couldn't close the tab: {ex.Message}");
+            }
         }
     }
 
