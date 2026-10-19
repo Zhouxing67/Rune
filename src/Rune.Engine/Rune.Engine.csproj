@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rune.PdfiumInterop\Rune.PdfiumInterop.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Lets tests assert on the page cache, which has no public surface. -->
+    <InternalsVisibleTo Include="Rune.Tests" />
+  </ItemGroup>
+
+</Project>

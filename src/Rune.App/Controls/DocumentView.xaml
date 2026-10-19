@@ -1,0 +1,194 @@
+<UserControl
+    x:Class="Rune.Controls.DocumentView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Rune.Controls">
+
+    <SplitView
+        x:Name="Split"
+        DisplayMode="Inline"
+        PanePlacement="Left"
+        OpenPaneLength="{StaticResource SidebarWidth}"
+        PaneBackground="{ThemeResource LayerFillColorDefaultBrush}"
+        IsPaneOpen="False">
+
+        <SplitView.Pane>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Pane content: one of thumbnails / chapters / bookmarks -->
+                <ListView
+                    x:Name="ThumbList"
+                    Grid.Row="0"
+                    SelectionMode="Extended"
+                    Padding="4,8"
+                    CanDragItems="True"
+                    CanReorderItems="True"
+                    AllowDrop="True"
+                    ContainerContentChanging="ThumbList_ContainerContentChanging"
+                    SelectionChanged="ThumbList_SelectionChanged"
+                    DragItemsCompleted="ThumbList_DragItemsCompleted"
+                    DragOver="ThumbList_DragOver"
+                    Drop="ThumbList_Drop"
+                    RightTapped="ThumbList_RightTapped"
+                    KeyDown="ThumbList_KeyDown">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="controls:ThumbnailItem">
+                            <StackPanel HorizontalAlignment="Center" Spacing="4" Padding="0,6">
+                                <!-- Height follows the page's own aspect ratio (see
+                                     ThumbnailItem.BoxHeight), so landscape and 4:3
+                                     slides aren't letterboxed in a portrait box. -->
+                                <!-- Two layers. The card Border's opaque background
+                                     paints ON TOP of the ListViewItem's selection
+                                     tint, which is why the current page was nearly
+                                     invisible in light theme; so the ring is drawn
+                                     as an overlay that owes nothing to the container.
+                                     Only its thickness is bound — the accent brush
+                                     stays here as a ThemeResource so it resolves
+                                     against the live theme. -->
+                                <Grid
+                                    Width="{StaticResource SidebarThumbWidth}"
+                                    Height="{x:Bind BoxHeight, Mode=OneWay}">
+                                    <Border
+                                        BorderThickness="1"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        CornerRadius="4"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                                        <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
+                                    </Border>
+                                    <Border
+                                        BorderThickness="{x:Bind RingThickness, Mode=OneWay}"
+                                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                        CornerRadius="4"
+                                        IsHitTestVisible="False" />
+                                </Grid>
+                                <TextBlock
+                                    Text="{x:Bind Label}"
+                                    HorizontalAlignment="Center"
+                                    Style="{StaticResource CaptionTextBlockStyle}"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+
+                <TreeView
+                    x:Name="OutlineTree"
+                    Grid.Row="0"
+                    Visibility="Collapsed"
+                    SelectionMode="Single"
+                    Padding="0,8"
+                    ItemInvoked="OutlineTree_ItemInvoked">
+                    <TreeView.ItemTemplate>
+                        <DataTemplate x:DataType="controls:OutlineNode">
+                            <TreeViewItem
+                                ItemsSource="{x:Bind Children}"
+                                IsExpanded="False">
+                                <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                            </TreeViewItem>
+                        </DataTemplate>
+                    </TreeView.ItemTemplate>
+                </TreeView>
+
+                <TextBlock
+                    x:Name="NoOutlineLabel"
+                    Grid.Row="0"
+                    Text="No table of contents"
+                    Visibility="Collapsed"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+
+                <!-- Bookmarks pane (user bookmarks; persisted via the shell) -->
+                <ListView
+                    x:Name="BookmarkList"
+                    Grid.Row="0"
+                    Visibility="Collapsed"
+                    SelectionMode="Single"
+                    Padding="0,8"
+                    IsItemClickEnabled="True"
+                    ItemClick="BookmarkList_ItemClick"
+                    RightTapped="BookmarkList_RightTapped"
+                    KeyDown="BookmarkList_KeyDown">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="controls:BookmarkItem">
+                            <StackPanel Orientation="Horizontal" Spacing="10" Padding="4,6">
+                                <FontIcon Glyph="&#xE8A4;" FontSize="14" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center" />
+                                <StackPanel>
+                                    <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind PageLabel, Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <StackPanel
+                    x:Name="NoBookmarksLabel"
+                    Grid.Row="0"
+                    Spacing="4"
+                    Visibility="Collapsed"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                    <TextBlock
+                        Text="No bookmarks yet"
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                    <TextBlock
+                        Text="Press Ctrl+B to bookmark this page"
+                        HorizontalAlignment="Center"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorDisabledBrush}" />
+                </StackPanel>
+
+                <!-- Bottom switcher (Papers pattern): thumbnails / chapters / bookmarks -->
+                <Grid Grid.Row="1" Padding="8,4" ColumnSpacing="4"
+                      BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                      BorderThickness="0,1,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <ToggleButton
+                        x:Name="ThumbsTab"
+                        Grid.Column="0"
+                        Style="{StaticResource SidebarTabStyle}"
+                        IsChecked="True"
+                        Click="ThumbsTab_Click"
+                        AutomationProperties.Name="Page thumbnails" ToolTipService.ToolTip="Thumbnails">
+                        <FontIcon Glyph="&#xE8A9;" FontSize="14" />
+                    </ToggleButton>
+                    <ToggleButton
+                        x:Name="OutlineTab"
+                        Grid.Column="1"
+                        Style="{StaticResource SidebarTabStyle}"
+                        Click="OutlineTab_Click"
+                        AutomationProperties.Name="Chapters" ToolTipService.ToolTip="Chapters">
+                        <FontIcon Glyph="&#xE8FD;" FontSize="14" />
+                    </ToggleButton>
+                    <ToggleButton
+                        x:Name="BookmarksTab"
+                        Grid.Column="2"
+                        Style="{StaticResource SidebarTabStyle}"
+                        Click="BookmarksTab_Click"
+                        AutomationProperties.Name="Bookmarks" ToolTipService.ToolTip="Bookmarks">
+                        <FontIcon Glyph="&#xE8A4;" FontSize="14" />
+                    </ToggleButton>
+                </Grid>
+            </Grid>
+        </SplitView.Pane>
+
+        <!-- SplitView.Content is already the region to the right of the pane,
+             so a notice hosted here can never reach the sidebar and re-centres
+             itself when the pane opens or closes — no width arithmetic. -->
+        <Grid>
+            <controls:PdfViewer x:Name="ViewerControl" />
+            <controls:NoticeHost x:Name="Notice" />
+        </Grid>
+    </SplitView>
+</UserControl>

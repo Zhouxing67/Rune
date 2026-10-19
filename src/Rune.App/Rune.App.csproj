@@ -1,0 +1,97 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Rune</RootNamespace>
+    <AssemblyName>Rune</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\rune.ico</ApplicationIcon>
+    <Version>0.8.0</Version>
+    <Platforms>x64;ARM64</Platforms>
+    <!-- The RID must follow Platform, or a multi-arch Store bundle builds the
+         ARM64 leg with win-x64 and fails (NETSDK1032). -->
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' And '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-x64</RuntimeIdentifier>
+    <!-- Both must be restored so a multi-arch bundle can resolve either leg. -->
+    <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
+    <!-- mspdbcmf.exe ships with the VS C++ workload, which isn't installed here;
+         symbol packages are optional for Store submission. -->
+    <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Default: unpackaged self-contained exe (dev + portable zip).
+         Release MSIX overrides on the command line: -p:WindowsPackageType=MSIX -->
+    <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
+    <!-- TWO SEPARATE PROPERTIES, and they sound like one. The first bundles the
+         Windows App SDK; the second bundles the .NET RUNTIME. Having only the
+         first is what shipped every Store package through v0.7.0 with no
+         runtime inside it: the portable zip passes the self-contained flag on
+         its `dotnet publish` command line and worked, while the MSIX is
+         packaged from a plain `dotnet build` that passed nothing and did not.
+         First launch from the Store then put up Windows' "you must install
+         .NET" download dialog, which never reproduces on a dev machine because
+         a dev machine has the runtime.
+
+         So it lives HERE, unconditionally, rather than on either command line —
+         neither path can carry it alone, and Debug builds what Release ships.
+         `tools/check-package.ps1` asserts the runtime actually made it into the
+         package, because this failure is otherwise completely silent. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <!-- Rune's UI is English only, so per-culture satellite assemblies are dead
+         weight in a self-contained build. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AppxPackageSigningEnabled Condition="'$(WindowsPackageType)' == 'MSIX'">true</AppxPackageSigningEnabled>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- License + third-party attributions must ship with every binary
+         distribution (PDFium BSD-3-Clause/Apache-2.0 requirement). -->
+    <Content Include="..\..\LICENSE" Link="LICENSE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\..\third_party\WindowsAppSDK-NOTICE.txt" Link="WindowsAppSDK-NOTICE.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The Microsoft.WindowsAppSDK meta-package is deliberately NOT referenced.
+         It hard-depends on .Widgets, .AI and .ML, and .ML drags in
+         Microsoft.Windows.AI.MachineLearning, whose onnxruntime.dll (20.7 MB)
+         and DirectML.dll (17.8 MB) alone were ~38 MB of a self-contained build.
+         Rune calls none of it: no widgets, no AI, no inference. Shipping an ML
+         runtime and an OAuth component inside an app whose Store listing and
+         runFullTrust justification both say "no network connections, collects no
+         data" also invites a fair question from anyone who looks inside the
+         package.
+
+         These are the meta-package's other dependencies, at the versions it
+         pins. None of them depends on AI, ML or Widgets. The cost of this is
+         that a WindowsAppSDK upgrade means bumping six lines instead of one, and
+         checking the meta-package's nuspec for any new dependency Rune does
+         need. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Base" Version="2.0.4" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.1.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.0.15" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.2.1" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.DWrite" Version="2.1.0" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Runtime" Version="2.2.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2270" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rune.Engine\Rune.Engine.csproj" />
+  </ItemGroup>
+
+</Project>

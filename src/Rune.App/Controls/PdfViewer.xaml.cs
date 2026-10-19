@@ -1,0 +1,2926 @@
+using Rune.Engine;
+using Rune.Styles;
+using Microsoft.Graphics.Canvas;
+using Microsoft.Graphics.Canvas.UI.Xaml;
+using Microsoft.UI;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Windows.Foundation;
+using Windows.Graphics.DirectX;
+using Windows.System;
+using Windows.UI;
+using DispatcherQueue = Microsoft.UI.Dispatching.DispatcherQueue;
+using DispatcherQueueTimer = Microsoft.UI.Dispatching.DispatcherQueueTimer;
+
+namespace Rune.Controls;
+
+public enum FitMode
+{
+    None,
+    FitWidth,
+    FitPage,
+}
+
+/// <summary>
+/// The document viewport: a virtualized Win2D canvas inside a ScrollViewer.
+///
+/// Drawing model: for every invalidated region we draw, per page — a white
+/// page rectangle, then a stretched low-res preview if one is cached (the
+/// "progressive" blurry pass), then any crisp tiles cached at the current
+/// scale. Anything missing is requested from the render thread; when a tile
+/// arrives we invalidate just its rectangle, and the region redraws crisp.
+/// </summary>
+public sealed partial class PdfViewer : UserControl
+{
+    private const double MinZoom = 0.1;
+    private const double MaxZoom = 6.4;
+    // A full 1024x1024 BGRA tile is 4 MB, so this is ~64 tiles. At maximum zoom
+    // one 612pt page alone needs a 5x5 grid, and two pages can be visible — the
+    // old 128 MB budget made those evict each other before they were ever drawn.
+    private const long TileCacheBudgetBytes = 256L * 1024 * 1024;
+    private const int PreviewCacheCapacity = 64;
+    private const float PreviewTargetWidthPx = 216f;
+
+    private readonly DispatcherQueue _dispatcher;
+    private RenderScheduler _scheduler;
+
+    private PdfDocument? _document;
+    private (float Width, float Height)[] _pageSizes = [];
+    private PageLayout? _layout;
+
+    // Tile cache: LRU by byte budget. Only touched on the UI thread.
+    private readonly Dictionary<TileKey, (CanvasBitmap Bitmap, LinkedListNode<TileKey> Node)> _tiles = [];
+    private readonly LinkedList<TileKey> _tileLru = [];
+    private long _tileBytes;
+
+    // Whole-page previews at ~216 px wide; scale-independent placeholders.
+    // ScaleKey travels with the bitmap so a page whose preview tier changed
+    // (see PreviewWidthFor) re-requests a sharper one instead of keeping the
+    // low-res placeholder forever.
+    private readonly Dictionary<int, (CanvasBitmap Bitmap, int ScaleKey)> _previews = [];
+    private readonly LinkedList<int> _previewLru = [];
+
+    // Cached rasters that are out of date but still worth drawing until their
+    // replacement arrives — see RefreshPageTiles.
+    private readonly HashSet<TileKey> _staleTiles = [];
+    private readonly HashSet<int> _stalePreviews = [];
+
+    private double _zoom = 1.0;
+    private int _rotation;
+    private FitMode _fitMode = FitMode.FitWidth;
+    private int _currentPage;
+    private bool _nightMode;
+
+    // A document can arrive before the ScrollViewer has been measured (fast
+    // opens, lazy tabs). Building the layout against a 0-width viewport makes
+    // PageLayout.TotalWidth collapse to the page width and the ScrollViewer
+    // left-align the canvas ("page stuck to the left"). Instead, remember the
+    // intent and apply it on the first real SizeChanged.
+    private bool _pendingFit;
+    private (double Zoom, int Rotation, double Fraction)? _pendingRestore;
+
+    // ScrollViewer.ViewportWidth/Height are refreshed during the ScrollViewer's
+    // OWN arrange pass, which runs *after* its SizeChanged event. Reading them
+    // inside SizeChanged therefore yields the previous size — which laid the
+    // document out against a stale width (page left-aligned, stale tiles) every
+    // time the sidebar toggled. SizeChanged hands us the authoritative new size,
+    // so we prefer it for the duration of that handler only.
+    private Size _sizeChangedViewport;
+    private double ViewportW => _sizeChangedViewport.Width > 0 ? _sizeChangedViewport.Width : Scroller.ViewportWidth;
+    private double ViewportH => _sizeChangedViewport.Height > 0 ? _sizeChangedViewport.Height : Scroller.ViewportHeight;
+
+    private bool ViewportReady => ViewportW > 50 && ViewportH > 50;
+
+    // Link hit-testing: per-page links, extracted lazily off the UI thread.
+    private readonly Dictionary<int, IReadOnlyList<PdfLink>> _links = [];
+    private readonly HashSet<int> _linksRequested = [];
+    private bool _pointerOverLink;
+
+    // Per-page text maps (text + char boxes) so selection hit-testing never
+    // calls PDFium on the pointer path. Prefetched for visible pages.
+    private const int PageTextCacheCapacity = 16;
+    private readonly Dictionary<int, PageText> _pageTexts = [];
+    private readonly LinkedList<int> _pageTextLru = [];
+    private readonly HashSet<int> _pageTextRequested = [];
+
+    // Coalesces desired-tile recomputes during scrolling (they're O(visible
+    // tiles) with list allocations — running them on every scroll tick is
+    // measurable churn).
+    private readonly DispatcherQueueTimer _desiredTimer;
+
+    // One reusable invert effect for night mode (allocating per tile per draw
+    // churns the GC during scrolling).
+    private Microsoft.Graphics.Canvas.Effects.InvertEffect? _invertEffect;
+
+    // Back/forward: vertical offsets we jumped away from (outline/link/page jumps).
+    private readonly Stack<double> _back = new();
+    private readonly Stack<double> _forward = new();
+
+    // Text selection (single-page for v1).
+    private TextSelection? _selection;
+    private int _selectionPage = -1;
+    private int _selectionAnchorChar = -1;
+    private bool _isSelecting;
+
+    // Search highlights, grouped by page, plus the active hit.
+    private readonly Dictionary<int, List<SearchHit>> _searchByPage = [];
+    private SearchHit? _activeHit;
+
+    // Annotation tools.
+    private AnnotationTool _activeTool = AnnotationTool.None;
+
+    // Freehand ink.
+    private bool _isDrawingInk;
+    private int _inkPage = -1;
+    private readonly List<Point> _inkPoints = [];   // document (layout) space
+    private Color _inkColor = Color.FromArgb(255, 226, 34, 34);
+    private double _inkWidthPt = 2.5;
+
+    // Text markup (the highlighter tool, which also does underline/strikeout).
+    private MarkupKind _markupKind = MarkupKind.Highlight;
+    private Color _markupColor = Color.FromArgb(255, 255, 210, 0);
+    private byte _markupAlpha = 102;
+
+    public event EventHandler<int>? CurrentPageChanged;
+    public event EventHandler<double>? ZoomChanged;
+
+    /// <summary>Raised after a rotation, with the new quarter-turn count (0–3).</summary>
+    public event EventHandler<int>? RotationChanged;
+
+    /// <summary>Raised when the user presses to start drawing, so transient UI (the pen panel) can get out of the way.</summary>
+    public event EventHandler? InkStrokeStarted;
+
+    /// <summary>Raised when the armed tool changes, so the toolbar can re-sync its buttons.</summary>
+    public event EventHandler<AnnotationTool>? ActiveToolChanged;
+    public event EventHandler? HistoryChanged;
+
+    /// <summary>Raised when the user clicks an external (URI) link. The shell decides whether to open it.</summary>
+    public event EventHandler<string>? LinkActivated;
+
+    /// <summary>Raised after any annotation edit (dirty state changed).</summary>
+    public event EventHandler? DocumentEdited;
+
+    /// <summary>Raised when night mode toggles, so sidebar thumbnails can re-render inverted.</summary>
+    public event EventHandler? NightModeChanged;
+
+    /// <summary>Raised after an annotation add/delete with its undo/redo actions (consumed by the undo stack).</summary>
+    public event EventHandler<AnnotationEditEventArgs>? AnnotationEdited;
+
+    /// <summary>Raised when the user asks for a note at (pageIndex, x, y in top-left page points).</summary>
+    public event EventHandler<(int PageIndex, double X, double Y)>? NoteRequested;
+
+    public int CurrentPage => _currentPage;
+    public double Zoom => _zoom;
+    public int ViewRotation => _rotation;
+    public int PageCount => _document?.PageCount ?? 0;
+    public PdfDocument? Document => _document;
+
+    /// <summary>
+    /// The render-thread work queue. ALL PDFium work for this document must go
+    /// through it (or the desired-tile list) — never call the document
+    /// directly from the UI thread or the thread pool.
+    /// </summary>
+    internal IPdfWorkQueue WorkQueue => _scheduler;
+
+    internal Task<T> RunOnRenderThreadAsync<T>(PdfWorkPriority priority, Func<T> operation)
+        => _scheduler.RunAsync(priority, operation);
+
+    public bool CanGoBack => _back.Count > 0;
+    public bool CanGoForward => _forward.Count > 0;
+
+    /// <summary>Current scroll position as a 0–1 fraction of total document height (for session restore).</summary>
+    public double ScrollFraction =>
+        _layout is { TotalHeight: > 0 } ? Scroller.VerticalOffset / _layout.TotalHeight : 0;
+
+    /// <summary>The currently selected text, or empty if nothing is selected.</summary>
+    public string SelectedText => _selection?.Text ?? string.Empty;
+    public bool HasSelection => (_selection?.Count ?? 0) > 0;
+
+    /// <summary>
+    /// The armed annotation tool. <see cref="AnnotationTool.None"/> is ordinary
+    /// reading: drag selects text. Anything else changes what a drag does, and
+    /// stays armed until the user picks another tool or presses Esc.
+    /// </summary>
+    public AnnotationTool ActiveTool
+    {
+        get => _activeTool;
+        set
+        {
+            if (_activeTool == value)
+            {
+                return;
+            }
+            _activeTool = value;
+            if (_isDrawingInk && value != AnnotationTool.Pen)
+            {
+                CancelInkStroke();
+            }
+            ClearSelectionState();
+            ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(CursorFor(value));
+            ActiveToolChanged?.Invoke(this, value);
+        }
+    }
+
+    private static Microsoft.UI.Input.InputSystemCursorShape CursorFor(AnnotationTool tool) => tool switch
+    {
+        AnnotationTool.Pen or AnnotationTool.Highlighter => Microsoft.UI.Input.InputSystemCursorShape.Cross,
+        // A note, a picture and a signature are all placed at a point, so the
+        // crosshair says where the point is.
+        AnnotationTool.Note or AnnotationTool.Signature or AnnotationTool.Image
+            => Microsoft.UI.Input.InputSystemCursorShape.Cross,
+        AnnotationTool.Eraser => Microsoft.UI.Input.InputSystemCursorShape.Hand,
+        _ => Microsoft.UI.Input.InputSystemCursorShape.Arrow,
+    };
+
+    /// <summary>True while the freehand pen is armed. Kept for the ink drawing paths.</summary>
+    private bool IsInkMode => _activeTool == AnnotationTool.Pen;
+
+    /// <summary>Sets the pen color (#RRGGBB) and width (points) for new ink strokes.</summary>
+    public void SetInkStyle(string hexColor, double widthPoints)
+    {
+        _inkColor = ParseHexColor(hexColor, _inkColor);
+        _inkWidthPt = widthPoints > 0 ? widthPoints : _inkWidthPt;
+    }
+
+    /// <summary>
+    /// Style for the text-markup tool: which mark to make, its colour, and how
+    /// opaque. The engine has always taken a full alpha byte on
+    /// <c>AddMarkup</c>; only the viewer hardcoded it.
+    /// </summary>
+    public void SetMarkupStyle(MarkupKind kind, string hexColor, double opacity)
+    {
+        _markupKind = kind;
+        _markupColor = ParseHexColor(hexColor, _markupColor);
+        _markupAlpha = (byte)Math.Clamp(Math.Round(opacity * 255), 1, 255);
+    }
+
+    private static Color ParseHexColor(string hex, Color fallback)
+    {
+        hex = hex.TrimStart('#');
+        if (hex.Length == 6 &&
+            byte.TryParse(hex[..2], System.Globalization.NumberStyles.HexNumber, null, out byte r) &&
+            byte.TryParse(hex[2..4], System.Globalization.NumberStyles.HexNumber, null, out byte g) &&
+            byte.TryParse(hex[4..6], System.Globalization.NumberStyles.HexNumber, null, out byte b))
+        {
+            return Color.FromArgb(255, r, g, b);
+        }
+        return fallback;
+    }
+
+    /// <summary>Invert page colors for night reading. Draw-time effect; cheap to toggle.</summary>
+    public bool NightMode
+    {
+        get => _nightMode;
+        set
+        {
+            if (_nightMode != value)
+            {
+                _nightMode = value;
+                // The surround follows night mode too, so the background brush
+                // has to be re-applied here and not only on a theme change.
+                ApplyViewerBackground();
+                Canvas.Invalidate();
+                NightModeChanged?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    public FitMode FitMode
+    {
+        get => _fitMode;
+        set
+        {
+            _fitMode = value;
+            ApplyFitMode();
+        }
+    }
+
+    public PdfViewer()
+    {
+        InitializeComponent();
+        _dispatcher = DispatcherQueue.GetForCurrentThread();
+        _scheduler = new RenderScheduler(OnTileRendered);
+
+        _desiredTimer = _dispatcher.CreateTimer();
+        _desiredTimer.Interval = TimeSpan.FromMilliseconds(50);
+        _desiredTimer.IsRepeating = false;
+        _desiredTimer.Tick += (_, _) =>
+        {
+            UpdateDesiredTiles();
+            UpdateCurrentPage();
+            PrefetchVisiblePageData();
+        };
+
+        Canvas.PointerMoved += Canvas_PointerMoved;
+        Canvas.PointerExited += Canvas_PointerExited;
+        Canvas.PointerPressed += Canvas_PointerPressed;
+        Canvas.PointerReleased += Canvas_PointerReleased;
+        Canvas.RightTapped += Canvas_RightTapped;
+        Canvas.PointerExited += (_, _) => SetLinkCursor(false);
+
+        // A gesture the system takes away never raises PointerReleased. Touch
+        // makes that routine — the ScrollViewer's pan wins the contact and the
+        // canvas is told the pointer was cancelled instead — and without these
+        // two the viewer stayed stuck mid-drag: still drawing ink, still
+        // resizing, with the scroll modes it had switched off never switched
+        // back on. SignaturePad has always handled both; the viewer did not.
+        Canvas.PointerCanceled += Canvas_PointerCanceled;
+        Canvas.PointerCaptureLost += Canvas_PointerCanceled;
+
+        // Touch has no hover and no second button, so the two reading gestures a
+        // mouse gets for free need one of their own: hold to start selecting
+        // text, double-tap to take the word under the finger. The hold is timed
+        // here rather than taken from the Holding event — see ArmHoldSelect.
+        Canvas.DoubleTapped += Canvas_DoubleTapped;
+
+        // On the Canvas, not the ScrollViewer. PointerWheelChanged bubbles from
+        // the hit-test target upward, so handling it on the child runs BEFORE
+        // the ScrollViewer's own Ctrl+wheel zoom and marking it handled stops
+        // that from happening at all. Attaching to the ScrollViewer instead
+        // (with handledEventsToo) meant both zoomed: the real zoom stepped by
+        // 1.1 and the ScrollViewer's ZoomFactor was then folded in on top, so
+        // every notch zoomed roughly twice as far as asked.
+        Canvas.PointerWheelChanged += Canvas_PointerWheelChanged;
+
+        // Tracks whether a pinch is genuinely in flight, so the ZoomFactor
+        // self-heal can tell "still gesturing" from "gesture ended and its
+        // settling event never arrived".
+        Scroller.DirectManipulationStarted += (_, _) => _manipulating = true;
+        Scroller.DirectManipulationCompleted += (_, _) =>
+        {
+            _manipulating = false;
+            UpdateDesiredTiles(); // picks up the rebase if ViewChanged didn't
+        };
+
+        // Form fields need real keyboard focus, which needs a tab stop. Set on
+        // the control rather than the canvas so CharacterReceived bubbles here.
+        IsTabStop = true;
+        UseSystemFocusVisuals = false; // the field draws its own focus ring
+        CharacterReceived += PdfViewer_CharacterReceived;
+        KeyDown += PdfViewer_KeyDown;
+        LostFocus += (_, _) => KillFormFocus();
+
+        ApplyViewerBackground();
+        ActualThemeChanged += (_, _) =>
+        {
+            ApplyViewerBackground();
+            Canvas.Invalidate();
+        };
+        // The scheduler owns a render thread, so it is stopped when the control
+        // leaves the tree. But a TabView unloads the content of a tab you switch
+        // AWAY from, and that is not going away at all — so it has to be able to
+        // come back, or that tab can never render anything again.
+        //
+        // It looks fine for a while, which is what made this hard to see: the
+        // tiles and thumbnails already rendered are still cached and still drawn.
+        // The page only goes white when something invalidates them, and then it
+        // stays white for good. Two tabs, switch across and back, press Ctrl+R:
+        // page and thumbnails both blank, permanently.
+        Unloaded += (_, _) =>
+        {
+            _schedulerStopped = true;
+            _scheduler.Dispose();
+        };
+        Loaded += (_, _) =>
+        {
+            if (!_schedulerStopped)
+            {
+                return;
+            }
+            _schedulerStopped = false;
+            _scheduler = new RenderScheduler(OnTileRendered);
+            // Nothing has changed about the view, so nothing else will ask.
+            RequestDesiredUpdate();
+        };
+    }
+
+    /// <summary>True while the render thread is stopped because the tab is not on screen.</summary>
+    private bool _schedulerStopped;
+
+    private double DisplayScale => XamlRoot?.RasterizationScale ?? 1.0;
+    private float RenderScale => (float)(_zoom * DisplayScale);
+
+    // TEMP diagnostics: set RUNE_DEBUG=1 to trace the tile pipeline to %TEMP%\rune-debug.log
+    private static readonly bool DebugLogEnabled = Environment.GetEnvironmentVariable("RUNE_DEBUG") == "1";
+    private static void DebugLog(string message)
+    {
+        if (DebugLogEnabled)
+        {
+            try
+            {
+                File.AppendAllText(Path.Combine(Path.GetTempPath(), "rune-debug.log"),
+                    $"{DateTime.Now:HH:mm:ss.fff} {message}\n");
+            }
+            catch { }
+        }
+    }
+
+    // ---------------------------------------------------------------- document
+
+    /// <summary>Shows a document (ownership stays with the caller) or clears the view.</summary>
+    public void SetDocument(PdfDocument? document)
+    {
+        // Commit any in-flight field edit before letting go of the old document.
+        if (_document is not null && IsFormFieldFocused)
+        {
+            _document.FormKillFocus();
+            _formFocusPage = -1;
+        }
+        if (_document is not null)
+        {
+            _document.FormPageInvalidated -= OnFormPageInvalidated;
+        }
+
+        _document = document;
+        ClearFormState();
+        if (document is not null)
+        {
+            document.FormPageInvalidated += OnFormPageInvalidated;
+        }
+
+        _pageSizes = document is null
+            ? []
+            : [.. Enumerable.Range(0, document.PageCount).Select(document.GetPageSize)];
+        _rotation = 0;
+        _currentPage = 0;
+        _fitMode = FitMode.FitWidth;
+
+        _back.Clear();
+        _forward.Clear();
+        _links.Clear();
+        _linksRequested.Clear();
+        ClearPageTextCache();
+        _selection = null;
+        _selectionPage = -1;
+        _selectionAnchorChar = -1;
+        _isSelecting = false;
+        _searchByPage.Clear();
+        _activeHit = null;
+
+        _scheduler.SetDocument(document);
+        ClearCaches();
+        _pendingRestore = null;
+        _pendingFit = false;
+        if (document is null || ViewportReady)
+        {
+            ApplyFitMode();      // no-op for null; RebuildLayout below clears the layout
+            if (document is null)
+            {
+                RebuildLayout();
+            }
+        }
+        else
+        {
+            // Not measured yet: drop the old layout and wait for SizeChanged.
+            _layout = null;
+            Canvas.Width = 0;
+            Canvas.Height = 0;
+            _pendingFit = true;
+        }
+        Scroller.ChangeView(0, 0, null, disableAnimation: true);
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        PrefetchVisiblePageData(); // ChangeView(0,0) on a fresh doc fires no ViewChanged
+        CurrentPageChanged?.Invoke(this, 0);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Restores a saved reading position after the layout is ready.</summary>
+    public void RestoreView(double zoom, int rotation, double scrollFraction)
+    {
+        if (!ViewportReady)
+        {
+            _pendingRestore = (zoom, rotation, scrollFraction);
+            _pendingFit = false;
+            return; // replayed on the first real SizeChanged
+        }
+        _rotation = ViewRotationMath.Normalize(rotation);
+        _fitMode = FitMode.None;
+        SetZoom(zoom <= 0 ? 1.0 : zoom);
+        if (_layout is not null)
+        {
+            Scroller.ChangeView(null, scrollFraction * _layout.TotalHeight, null, disableAnimation: true);
+        }
+    }
+
+    private void ClearCaches()
+    {
+        foreach (var (bitmap, _) in _tiles.Values)
+        {
+            bitmap.Dispose();
+        }
+        _tiles.Clear();
+        _tileLru.Clear();
+        _tileBytes = 0;
+
+        foreach (var (preview, _) in _previews.Values)
+        {
+            preview.Dispose();
+        }
+        _previews.Clear();
+        _previewLru.Clear();
+
+        // Nothing is cached any more, so nothing can be stale. Leaving these
+        // populated would make UpdateDesiredTiles re-request tiles that no
+        // longer exist, forever — the sets grew on every rotation, device-loss
+        // and document swap.
+        _staleTiles.Clear();
+        _stalePreviews.Clear();
+
+        // The effect holds a reference to a (possibly device-lost) bitmap.
+        _invertEffect?.Dispose();
+        _invertEffect = null;
+    }
+
+    // ---------------------------------------------------------------- zoom & fit
+
+    public void ZoomIn() => SetZoom(_zoom * 1.25);
+    public void ZoomOut() => SetZoom(_zoom / 1.25);
+
+    /// <summary>
+    /// Sets zoom, keeping the document point under <paramref name="viewportAnchor"/>
+    /// (default: viewport center) stationary on screen.
+    /// </summary>
+    public void SetZoom(double newZoom, Point? viewportAnchor = null, FitMode fitMode = FitMode.None)
+    {
+        newZoom = Math.Clamp(newZoom, MinZoom, MaxZoom);
+        _fitMode = fitMode;
+        if (_layout is null || Math.Abs(newZoom - _zoom) < 0.0001)
+        {
+            _zoom = newZoom;
+            RebuildLayout();
+            return;
+        }
+
+        var viewportPoint = viewportAnchor ?? new Point(Scroller.ViewportWidth / 2, Scroller.ViewportHeight / 2);
+
+        // Capture in PAGE space before the layout changes. Scaling the scroll
+        // offset by the zoom ratio instead would assume document space scales
+        // purely with zoom — it doesn't, and the error accumulates once per
+        // page gap (see ZoomAnchor).
+        var anchor = ZoomAnchor.Capture(
+            _layout, Scroller.HorizontalOffset, Scroller.VerticalOffset, viewportPoint.X, viewportPoint.Y);
+
+        _zoom = newZoom;
+        RebuildLayout();
+        ScrollToAnchor(anchor, viewportPoint);
+
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        ZoomChanged?.Invoke(this, _zoom);
+    }
+
+    /// <summary>
+    /// Scrolls so a page-space anchor lands back under a viewport position.
+    ///
+    /// <c>UpdateLayout()</c> first is load-bearing: <see cref="RebuildLayout"/>
+    /// has only just assigned <c>Canvas.Width/Height</c>, and until the
+    /// ScrollViewer re-measures, <c>ChangeView</c> clamps the requested offset
+    /// against the OLD extent — so zooming in asks to scroll further than the
+    /// previous layout allowed and silently lands short.
+    /// </summary>
+    private void ScrollToAnchor(PageAnchor anchor, Point viewportPoint, float? zoomFactor = null)
+    {
+        if (_layout is null)
+        {
+            return;
+        }
+
+        Scroller.UpdateLayout();
+        var (x, y) = ZoomAnchor.Restore(_layout, anchor, viewportPoint.X, viewportPoint.Y);
+
+        if (Scroller.ChangeView(Math.Max(0, x), Math.Max(0, y), zoomFactor, disableAnimation: true))
+        {
+            return;
+        }
+
+        // ChangeView refuses (and returns false) if the ScrollViewer isn't in a
+        // state to move yet. Silently ignoring that leaves the view parked in
+        // the wrong place, so try once more after the current layout pass.
+        _dispatcher.TryEnqueue(() =>
+        {
+            if (_layout is not null)
+            {
+                var (retryX, retryY) = ZoomAnchor.Restore(_layout, anchor, viewportPoint.X, viewportPoint.Y);
+                Scroller.ChangeView(Math.Max(0, retryX), Math.Max(0, retryY), zoomFactor, disableAnimation: true);
+            }
+        });
+    }
+
+    private void ApplyFitMode()
+    {
+        if (_document is null || _pageSizes.Length == 0)
+        {
+            return;
+        }
+
+        if (!ViewportReady)
+        {
+            _pendingFit = true; // never fit against a guessed viewport size
+            return;
+        }
+        double usableWidth = ViewportW - 2 * PageLayout.Margin;
+        double usableHeight = ViewportH - 2 * PageLayout.Margin;
+
+        var size = _pageSizes[Math.Clamp(_currentPage, 0, _pageSizes.Length - 1)];
+        double pageW = _rotation % 2 == 0 ? size.Width : size.Height;
+        double pageH = _rotation % 2 == 0 ? size.Height : size.Width;
+
+        double zoom = _fitMode switch
+        {
+            FitMode.FitWidth => usableWidth / _pageSizes.Max(s => _rotation % 2 == 0 ? s.Width : s.Height),
+            FitMode.FitPage => Math.Min(usableWidth / pageW, usableHeight / pageH),
+            _ => _zoom,
+        };
+        // Anchor at the viewport's top-left so the reading position scales
+        // proportionally — center-anchoring would scroll the view away from
+        // the document top when a fit re-applies (e.g. on window resize).
+        SetZoom(zoom, viewportAnchor: new Point(0, 0), fitMode: _fitMode);
+    }
+
+    public void RotateClockwise() => Rotate(+1);
+
+    public void RotateCounterClockwise() => Rotate(-1);
+
+    /// <summary>
+    /// Rotates the view by whole quarter turns (negative = counter-clockwise).
+    /// Everything derived from page geometry is dropped and rebuilt — that
+    /// invalidation is load-bearing (it is the fix for the v0.2 "rotate shows
+    /// blank pages" bug), so keep it together.
+    /// </summary>
+    public void Rotate(int quarterTurns)
+    {
+        int next = ViewRotationMath.Normalize(_rotation + quarterTurns);
+        if (next == _rotation)
+        {
+            return;
+        }
+        _rotation = next;
+
+        // Selection, search hits, link rects and page text are all measured in
+        // unrotated page coordinates, which makes them rotation-independent —
+        // they survive this. They used to be dropped here because nothing could
+        // *place* them once the view turned; now that the drawing and hit-testing
+        // paths both go through PageRotationTransform, throwing away the user's
+        // find results and selection on every Ctrl+R would be pure loss. Only an
+        // in-progress drag goes, since the pointer is no longer over what it
+        // grabbed.
+        _isSelecting = false;
+
+        // Tiles and previews are rendered per-rotation, so those really are
+        // stale. This invalidation is load-bearing — it is the fix for the v0.2
+        // "rotate shows blank pages" bug.
+        ClearCaches();
+
+        double positionRatio = _layout is { TotalHeight: > 0 }
+            ? Scroller.VerticalOffset / _layout.TotalHeight
+            : 0;
+        RebuildLayout();
+        if (_layout is not null)
+        {
+            Scroller.ChangeView(null, positionRatio * _layout.TotalHeight, null, disableAnimation: true);
+        }
+        if (_fitMode != FitMode.None)
+        {
+            ApplyFitMode();
+        }
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        RotationChanged?.Invoke(this, _rotation);
+    }
+
+    // ---------------------------------------------------------------- navigation
+
+    /// <summary>Scrolls to a page. Prev/next paging passes recordHistory:false; jumps pass true.</summary>
+    public void GoToPage(int pageIndex, bool recordHistory = false)
+    {
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+        if (recordHistory)
+        {
+            PushHistory();
+        }
+        pageIndex = Math.Clamp(pageIndex, 0, _document.PageCount - 1);
+        var rect = _layout.GetPageRect(pageIndex);
+        Scroller.ChangeView(null, Math.Max(0, rect.Y - PageLayout.PageGap / 2), null, disableAnimation: true);
+    }
+
+    /// <summary>Smooth line-scroll for keyboard navigation (vim j/k).</summary>
+    public void ScrollByLines(int lines)
+        => Scroller.ChangeView(null, Scroller.VerticalOffset + lines * 60, null);
+
+    /// <summary>Scroll by a fraction of the viewport height (Space / Shift+Space).</summary>
+    public void ScrollByViewport(double fraction)
+        => Scroller.ChangeView(null, Scroller.VerticalOffset + Scroller.ViewportHeight * fraction, null);
+
+    public void ScrollHorizontally(int steps)
+        => Scroller.ChangeView(Scroller.HorizontalOffset + steps * 60, null, null);
+
+    private void PushHistory()
+    {
+        _back.Push(Scroller.VerticalOffset);
+        _forward.Clear();
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void GoBack()
+    {
+        if (_back.Count == 0)
+        {
+            return;
+        }
+        _forward.Push(Scroller.VerticalOffset);
+        Scroller.ChangeView(null, _back.Pop(), null, disableAnimation: true);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void GoForward()
+    {
+        if (_forward.Count == 0)
+        {
+            return;
+        }
+        _back.Push(Scroller.VerticalOffset);
+        Scroller.ChangeView(null, _forward.Pop(), null, disableAnimation: true);
+        HistoryChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    // ---------------------------------------------------------------- layout
+
+    private void RebuildLayout()
+    {
+        if (_document is null)
+        {
+            _layout = null;
+            Canvas.Width = 0;
+            Canvas.Height = 0;
+            return;
+        }
+
+        _layout = new PageLayout(_pageSizes, _zoom, _rotation, ViewportW, ViewportH);
+        Canvas.Width = _layout.TotalWidth;
+        Canvas.Height = _layout.TotalHeight;
+        // Pages just moved (re-centered / re-scaled). Without this, whatever the
+        // virtual canvas already painted stays on screen as ghost fragments —
+        // only newly-invalidated regions would be redrawn.
+        Canvas.Invalidate();
+    }
+
+    private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        // Use the size the event carries, not the ScrollViewer's own (still
+        // stale) ViewportWidth/Height — see _sizeChangedViewport.
+        _sizeChangedViewport = e.NewSize;
+        try
+        {
+            if (!ViewportReady)
+            {
+                return;
+            }
+
+            if (_pendingRestore is { } restore)
+            {
+                // A session position arrived before the first measure; replay it
+                // now that the viewport is real (zoom → layout → scroll ordering).
+                _pendingRestore = null;
+                _pendingFit = false;
+                RestoreView(restore.Zoom, restore.Rotation, restore.Fraction);
+            }
+            else if (_pendingFit)
+            {
+                _pendingFit = false;
+                ApplyFitMode();
+            }
+            else if (_fitMode != FitMode.None)
+            {
+                ApplyFitMode();
+            }
+            else
+            {
+                // Free zoom: keep the zoom, but re-centre for the new width.
+                RebuildLayout();
+            }
+            UpdateDesiredTiles();
+            PrefetchVisiblePageData();
+        }
+        finally
+        {
+            // Later calls must read the live (by then correct) viewport.
+            _sizeChangedViewport = default;
+        }
+    }
+
+    private bool _rebasingZoom;
+
+    /// <summary>True while a touch/touchpad pinch is actually in flight.</summary>
+    private bool _manipulating;
+
+    /// <summary>Reentry guard for the ZoomFactor self-heal in UpdateDesiredTiles.</summary>
+    private bool _healingZoom;
+
+    private void Scroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+    {
+        if (_rebasingZoom)
+        {
+            return;
+        }
+
+        // Pinch (touch/touchpad) and Ctrl+wheel zoom arrive as ScrollViewer
+        // ZoomFactor changes: the canvas raster-scales during the gesture
+        // (instant, slightly blurry), and when the gesture settles we fold
+        // the factor into the real zoom and re-render crisp ("rebase").
+        float factor = Scroller.ZoomFactor;
+        if (Math.Abs(factor - 1f) > 0.001f)
+        {
+            if (!e.IsIntermediate)
+            {
+                RebaseZoom(factor);
+            }
+            return;
+        }
+
+        // An open text box is anchored to the page, not to the window, so it has
+        // to be re-placed on every view change including the intermediate ones.
+        // Skipping those would leave it sliding against the content mid-scroll.
+        PositionTextEditor();
+
+        if (e.IsIntermediate)
+        {
+            // Mid-scroll: coalesce the (allocating) want-list recompute; the
+            // 50 ms timer keeps tiles flowing without per-tick churn.
+            RequestDesiredUpdate();
+        }
+        else
+        {
+            UpdateDesiredTiles();
+            UpdateCurrentPage();
+            PrefetchVisiblePageData();
+        }
+    }
+
+    /// <summary>Coalesced <see cref="UpdateDesiredTiles"/> (plus page/prefetch upkeep).</summary>
+    private void RequestDesiredUpdate()
+    {
+        if (!_desiredTimer.IsRunning)
+        {
+            _desiredTimer.Start();
+        }
+    }
+
+    private void RebaseZoom(float factor)
+    {
+        if (_layout is null)
+        {
+            return;
+        }
+
+        _rebasingZoom = true;
+        try
+        {
+            double newZoom = Math.Clamp(_zoom * factor, MinZoom, MaxZoom);
+
+            // Mid-gesture the offsets are in ZoomFactor-scaled space, so divide
+            // the factor out to get the content point at the viewport origin in
+            // layout units, then capture it in page space. Anchoring on the
+            // scaled offset directly is what used to make a pinch drift.
+            var anchor = ZoomAnchor.Capture(
+                _layout, Scroller.HorizontalOffset / factor, Scroller.VerticalOffset / factor, 0, 0);
+
+            _zoom = newZoom;
+            _fitMode = FitMode.None;
+            RebuildLayout();
+            // Resetting ZoomFactor to 1 in the same call is what re-enables the
+            // tile pipeline — UpdateDesiredTiles refuses to run while it's off 1.
+            ScrollToAnchor(anchor, new Point(0, 0), zoomFactor: 1f);
+        }
+        finally
+        {
+            _rebasingZoom = false;
+        }
+
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        UpdateCurrentPage();
+        ZoomChanged?.Invoke(this, _zoom);
+    }
+
+    /// <summary>
+    /// Kick off link + text-map extraction for pages entering the viewport so
+    /// the FIRST click (on a link, or starting a selection) works — extracting
+    /// lazily on pointer contact loses the race against the click itself.
+    /// </summary>
+    private void PrefetchVisiblePageData()
+    {
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+        var (first, last) = _layout.PagesInVerticalRange(
+            Scroller.VerticalOffset, Scroller.VerticalOffset + Scroller.ViewportHeight);
+        for (int i = first; i <= last; i++)
+        {
+            EnsureLinks(i);
+            EnsurePageText(i);
+            EnsureFormFields(i);
+        }
+    }
+
+    private void UpdateCurrentPage()
+    {
+        if (_layout is null)
+        {
+            return;
+        }
+        int page = _layout.PageAt(Scroller.VerticalOffset + Scroller.ViewportHeight * 0.4);
+        if (page != _currentPage)
+        {
+            _currentPage = page;
+            CurrentPageChanged?.Invoke(this, page);
+        }
+    }
+
+    // ---------------------------------------------------------------- input
+
+    /// <summary>
+    /// Ctrl+wheel zoom, handled here rather than by the ScrollViewer.
+    ///
+    /// The ScrollViewer's own Ctrl+wheel zoom raster-scales the canvas and only
+    /// becomes crisp again when <see cref="RebaseZoom"/> folds the factor back
+    /// in — which meant every notch flashed blurry, and if the settling
+    /// ViewChanged was ever missed the page stayed blurry indefinitely, because
+    /// UpdateDesiredTiles refuses to request tiles while ZoomFactor is off 1.
+    /// Zooming directly keeps ZoomFactor at 1 throughout, so tiles are
+    /// requested at the new scale immediately and the cursor stays anchored
+    /// exactly.
+    ///
+    /// Pinch still goes through the ScrollViewer, which genuinely needs the
+    /// live continuous scaling.
+    /// </summary>
+    private void Canvas_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+    {
+        var point = e.GetCurrentPoint(Scroller);
+        bool ctrl = Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (point.Properties.MouseWheelDelta == 0)
+        {
+            return;
+        }
+
+        if (!ctrl || _layout is null)
+        {
+            return; // plain wheel: let it bubble to the ScrollViewer and scroll
+        }
+
+        // Ctrl+wheel resizes the picture waiting to be placed, and only while
+        // one actually is. It reads as an override of the zoom because that is
+        // what it is: the modifier means "not the page", and while something is
+        // pending the thing that is not the page is the picture.
+        //
+        // This used to be the other way round — plain wheel resized — which made
+        // it impossible to scroll to the place you wanted to drop the picture
+        // without first putting the tool away.
+        if (TryResizePendingStamp(point.Properties.MouseWheelDelta))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        DebugLog($"WHEEL delta={point.Properties.MouseWheelDelta} pos=({point.Position.X:0},{point.Position.Y:0}) zoom={_zoom:0.###}");
+
+        // One notch is 120. Multiplicative so each step feels the same at any
+        // zoom level, and fractional deltas (precision touchpads) scale down.
+        double steps = point.Properties.MouseWheelDelta / 120.0;
+        double factor = Math.Pow(1.1, steps);
+
+        SetZoom(_zoom * factor, viewportAnchor: point.Position);
+        e.Handled = true;
+    }
+
+    // ---------------------------------------------------------------- annotations
+
+    /// <summary>
+    /// Applies a markup annotation to the current text selection. The PDFium
+    /// write runs on the render thread (never block the UI on the PDFium lock);
+    /// the page refreshes when it completes.
+    /// </summary>
+    public void MarkupSelection(MarkupKind kind)
+    {
+        // The classic defaults, used by Ctrl+H, the palette and the right-click
+        // menu: semi-transparent yellow for highlights, solid red for line
+        // markup. The highlighter tool passes its own style instead.
+        var (color, alpha) = kind == MarkupKind.Highlight
+            ? (Color.FromArgb(255, 255, 210, 0), (byte)102)
+            : (Color.FromArgb(255, 220, 30, 30), (byte)255);
+        MarkupSelection(kind, color, alpha);
+    }
+
+    /// <inheritdoc cref="MarkupSelection(MarkupKind)"/>
+    public async void MarkupSelection(MarkupKind kind, Color color, byte alpha)
+    {
+        if (_document is null || _selection is not { Count: > 0 } selection)
+        {
+            return;
+        }
+
+        var document = _document;
+        int page = selection.PageIndex;
+        var rects = selection.Rects;
+        ClearSelectionState();
+        Canvas.Invalidate();
+
+        AnnotationSpec? spec;
+        try
+        {
+            spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+            {
+                document.AddMarkup(page, kind, rects, color.R, color.G, color.B, alpha);
+                return document.CaptureLastAnnotation(page);
+            });
+        }
+        catch
+        {
+            return; // document swapped or closed mid-edit
+        }
+        if (_document != document)
+        {
+            return;
+        }
+        InvalidatePage(page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        RaiseAnnotationAdded(kind.ToString().ToLowerInvariant(), page, spec);
+    }
+
+    /// <summary>Pushes an undoable "add annotation" edit (undo removes it; redo re-creates from spec).</summary>
+    private void RaiseAnnotationAdded(string label, int page, AnnotationSpec? spec)
+    {
+        if (spec is null)
+        {
+            return;
+        }
+        AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+        {
+            Label = label,
+            PageIndex = page,
+            UndoAction = d => d.RemoveLastAnnotation(page),
+            RedoAction = d => d.AddAnnotationFromSpec(spec),
+            // Only a stamp retains anything worth counting.
+            SnapshotBytes = spec.Stamp?.ByteCount ?? 0,
+        });
+    }
+
+    /// <summary>Adds a note (already collected by the shell) and refreshes the page.</summary>
+    public async void AddNote(int pageIndex, double x, double y, string text)
+    {
+        if (_document is null)
+        {
+            return;
+        }
+        var document = _document;
+        AnnotationSpec? spec;
+        try
+        {
+            spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+            {
+                document.AddNote(pageIndex, x, y, text);
+                return document.CaptureLastAnnotation(pageIndex);
+            });
+        }
+        catch
+        {
+            return;
+        }
+        if (_document != document)
+        {
+            return;
+        }
+        InvalidatePage(pageIndex);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        RaiseAnnotationAdded("note", pageIndex, spec);
+    }
+
+    private void ClearSelectionState()
+    {
+        _selection = null;
+        _selectionPage = -1;
+        _selectionAnchorChar = -1;
+        _isSelecting = false;
+    }
+
+    /// <summary>Stops tile production ahead of a page mutation (stale requests would be out of range).</summary>
+    internal void PreparePageMutation() => _scheduler.SetDesired([]);
+
+    /// <summary>
+    /// Rebuilds every page-derived cache after pages were deleted/moved/
+    /// inserted: sizes, layout (preserving the scroll fraction), tiles,
+    /// previews, links, text maps, selection, and search are all stale.
+    /// </summary>
+    internal void HandleDocumentMutated()
+    {
+        if (_document is null)
+        {
+            return;
+        }
+
+        _pageSizes = [.. Enumerable.Range(0, _document.PageCount).Select(_document.GetPageSize)];
+        _links.Clear();
+        _linksRequested.Clear();
+        ClearPageTextCache();
+        ClearSelectionState();
+        _searchByPage.Clear();
+        _activeHit = null;
+        ClearCaches();
+
+        double fraction = _layout is { TotalHeight: > 0 } ? Scroller.VerticalOffset / _layout.TotalHeight : 0;
+        RebuildLayout();
+        if (_layout is not null)
+        {
+            Scroller.ChangeView(null, fraction * _layout.TotalHeight, null, disableAnimation: true);
+        }
+        _currentPage = Math.Clamp(_currentPage, 0, Math.Max(0, _document.PageCount - 1));
+
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+        UpdateCurrentPage();
+        PrefetchVisiblePageData();
+        CurrentPageChanged?.Invoke(this, _currentPage);
+    }
+
+    /// <summary>
+    /// Marks one page's cached tiles for re-render while leaving them on
+    /// screen, so the page is never blank in between.
+    ///
+    /// This is the difference between form typing that feels finished and form
+    /// typing that looks broken: <see cref="InvalidatePage"/> disposes the
+    /// tiles and the preview, so every keystroke would flash white and then
+    /// cycle blurry-to-crisp. Here the old raster keeps drawing until its
+    /// replacement is uploaded over it.
+    /// </summary>
+    public void RefreshPageTiles(int pageIndex)
+    {
+        foreach (var key in _tiles.Keys)
+        {
+            if (key.PageIndex == pageIndex)
+            {
+                _staleTiles.Add(key);
+            }
+        }
+        if (_previews.ContainsKey(pageIndex))
+        {
+            _stalePreviews.Add(pageIndex);
+        }
+        UpdateDesiredTiles();
+    }
+
+    /// <summary>Drops one page's cached tiles + preview and re-renders it (after an edit).</summary>
+    public void InvalidatePage(int pageIndex)
+    {
+        foreach (var key in _tiles.Keys.Where(k => k.PageIndex == pageIndex).ToList())
+        {
+            var (bitmap, node) = _tiles[key];
+            _tileBytes -= (long)bitmap.SizeInPixels.Width * bitmap.SizeInPixels.Height * 4;
+            _tileLru.Remove(node);
+            _tiles.Remove(key);
+            bitmap.Dispose();
+        }
+        if (_previews.Remove(pageIndex, out var preview))
+        {
+            _previewLru.Remove(pageIndex);
+            _stalePreviews.Remove(pageIndex);
+            preview.Bitmap.Dispose();
+        }
+
+        if (_layout is not null)
+        {
+            var rect = _layout.GetPageRect(pageIndex);
+            Canvas.Invalidate(new Rect(rect.X, rect.Y, rect.Width, rect.Height));
+        }
+        UpdateDesiredTiles();
+    }
+
+    private async void Canvas_RightTapped(object sender, RightTappedRoutedEventArgs e)
+    {
+        if (_document is null || _layout is null)
+        {
+            return;
+        }
+        e.Handled = true; // must be set before any await — the event returns at the first one
+
+        var position = e.GetPosition(Canvas);
+        int page = _layout.PageAt(position.Y);
+        var (localX, localY) = ToPageLocal(page, new Point(position.X, position.Y));
+        var document = _document;
+
+        var menu = new MenuFlyout();
+
+        if (_selection is { Count: > 0 } sel && sel.PageIndex == page)
+        {
+            AddMenuItem(menu, "Highlight", Symbol.Highlight, () => MarkupSelection(MarkupKind.Highlight));
+            AddMenuItem(menu, "Underline", Symbol.Underline, () => MarkupSelection(MarkupKind.Underline));
+            AddMenuItem(menu, "Strikeout", Symbol.Font, () => MarkupSelection(MarkupKind.Strikeout));
+        }
+        if (HasSelection)
+        {
+            AddMenuItem(menu, "Copy", Symbol.Copy, CopySelectionToClipboard);
+        }
+
+        // Deleting something placed was bound to the Delete key alone, which a
+        // tablet with no keyboard attached does not have. Press-and-hold raises
+        // this menu from a finger, so the object's own action belongs in it.
+        if (_selected is { } selectedObject)
+        {
+            if (menu.Items.Count > 0)
+            {
+                menu.Items.Add(new MenuFlyoutSeparator());
+            }
+            AddMenuItem(
+                menu,
+                selectedObject.Kind == StampKind.Text ? "Delete text box" : "Delete picture",
+                Symbol.Delete,
+                DeleteSelectedObject);
+        }
+
+        if (menu.Items.Count > 0)
+        {
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
+        AddMenuItem(menu, "Add note here", Symbol.Comment,
+            () => NoteRequested?.Invoke(this, (page, localX, localY)));
+
+        // Right-click is already how markup and notes are reached, so it is
+        // where a field's own options belong too. Pure lookup against cached
+        // geometry, so it adds nothing to the time before the menu appears.
+        if (TextFieldAt(page, localX, localY) is { } field)
+        {
+            AddMenuItem(menu, "Text appearance…", Symbol.Font,
+                () => RequestFieldAppearance(page, field.Name));
+        }
+
+        // Offer deletion when the click lands on an annotation. The query
+        // runs on the render thread so a slow tile render can't freeze the
+        // UI while the menu is being built.
+        AnnotationInfo? hit = null;
+        try
+        {
+            var annotations = await _scheduler.RunAsync(
+                PdfWorkPriority.Interactive, () => document.GetAnnotations(page));
+            hit = HitTestAnnotation(annotations, localX, localY);
+        }
+        catch
+        {
+            // Document swapped/closed; show the menu without a delete entry.
+        }
+        if (_document != document)
+        {
+            return;
+        }
+        if (hit is not null)
+        {
+            int annotIndex = hit.Index;
+            AddMenuItem(menu, hit.IsNote ? $"Delete note{FormatNotePreview(hit.Contents)}" : "Delete annotation",
+                Symbol.Delete, async () =>
+                {
+                    (bool Removed, AnnotationSpec? Spec) result;
+                    try
+                    {
+                        // Capture the annotation BEFORE deleting so undo can rebuild it.
+                        result = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+                        {
+                            var captured = document.CaptureAnnotation(page, annotIndex);
+                            bool ok = document.RemoveAnnotation(page, annotIndex);
+                            return (ok, captured);
+                        });
+                    }
+                    catch
+                    {
+                        return;
+                    }
+                    if (result.Removed && _document == document)
+                    {
+                        InvalidatePage(page);
+                        DocumentEdited?.Invoke(this, EventArgs.Empty);
+                        if (result.Spec is { } spec)
+                        {
+                            AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+                            {
+                                Label = spec.Subtype == Rune.PdfiumInterop.PdfiumNative.AnnotText ? "delete note" : "delete annotation",
+                                PageIndex = page,
+                                SnapshotBytes = spec.Stamp?.ByteCount ?? 0,
+                                UndoAction = d => d.AddAnnotationFromSpec(spec),
+                                RedoAction = d => d.RemoveLastAnnotation(page),
+                            });
+                        }
+                    }
+                });
+        }
+
+        if (menu.Items.Count > 0)
+        {
+            menu.ShowAt(Canvas, position);
+        }
+    }
+
+    private static string FormatNotePreview(string contents) =>
+        string.IsNullOrWhiteSpace(contents) ? "" : $" (“{contents[..Math.Min(24, contents.Length)]}…”)";
+
+    private static void AddMenuItem(MenuFlyout menu, string text, Symbol icon, Action action)
+    {
+        var item = new MenuFlyoutItem { Text = text, Icon = new SymbolIcon(icon) };
+        item.Click += (_, _) => action();
+        menu.Items.Add(item);
+    }
+
+    private void CopySelectionToClipboard()
+    {
+        if (HasSelection)
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(SelectedText);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+        }
+    }
+
+    // ---------------------------------------------------------------- touch
+    //
+    // Rune's input layer was written for a mouse: a pointer that hovers, has
+    // buttons, and never competes with the ScrollViewer for a drag. A finger
+    // does none of those things, so the handful of places where the difference
+    // actually changes what should happen ask this.
+    //
+    // The rule everything below serves: ON TOUCH THE PAGE PANS BY DEFAULT. A
+    // drag means something else only when a tool is armed, or when the user is
+    // dragging an object they have already selected. Mouse and pen behaviour is
+    // untouched.
+
+    /// <summary>True when the event came from a finger rather than a mouse or pen.</summary>
+    private static bool IsTouch(PointerRoutedEventArgs e)
+        => e.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch;
+
+    /// <summary>True while the canvas owns a drag the ScrollViewer must not pan with.</summary>
+    private bool _gestureOwned;
+
+    /// <summary>
+    /// The contact currently down on the canvas.
+    ///
+    /// HoldingRoutedEventArgs carries no Pointer, and a hold that cannot capture
+    /// is a hold whose drag never arrives: the anchor lands on the character
+    /// under the finger and every move after it goes somewhere else, so the
+    /// selection stays one character wide. Verified on screen before this was
+    /// kept.
+    /// </summary>
+    private Pointer? _activePointer;
+
+    /// <summary>
+    /// How far off a target a press may land and still hit it, in page points.
+    /// Zero for a mouse. The arithmetic lives in <see cref="TouchMetrics"/> so
+    /// it can be pinned by test without a XAML control to host it.
+    /// </summary>
+    private double TouchSlopPt(bool touch) => TouchMetrics.SlopPt(touch, _zoom);
+
+    /// <summary>
+    /// Takes a drag for the canvas: captures the pointer AND stops the
+    /// ScrollViewer panning for as long as it lasts.
+    ///
+    /// The capture is not what does the work. A ScrollViewer pans through
+    /// direct manipulation, which the input system drives on its own thread and
+    /// independently of routed events, so neither capturing the pointer nor
+    /// marking the event handled reliably keeps a touch contact away from it.
+    /// Turning the scroll modes off is what actually decides the question.
+    ///
+    /// ZoomMode has to go off with them, which is NOT obvious and was got wrong
+    /// first: with only the scroll modes disabled the page correctly refused to
+    /// pan, but direct manipulation was still watching the contact in case it
+    /// became a pinch, and it took the capture away the moment the finger moved.
+    /// That fired PointerCaptureLost, which cancels the gesture, so a hold-drag
+    /// selected exactly one character and an ink stroke would have been a dot.
+    /// Nobody pinches mid-stroke, so the trade costs nothing.
+    /// </summary>
+    private void BeginExclusiveGesture(Pointer? pointer)
+    {
+        // Null only if a hold somehow arrives with no press behind it. The
+        // capture is what keeps the moves coming once the finger travels.
+        if (pointer is not null)
+        {
+            Canvas.CapturePointer(pointer);
+        }
+        if (_gestureOwned)
+        {
+            return;
+        }
+        _gestureOwned = true;
+
+        // ManipulationMode is the documented lever: while a child's mode is
+        // anything other than System, the parent ScrollViewer's direct
+        // manipulation does not claim gestures that begin on it. Disabling the
+        // scroll modes alone stops the PAN but leaves DManip holding the
+        // contact, and it takes the capture back the moment the finger travels.
+        Canvas.ManipulationMode = ManipulationModes.All;
+        Scroller.HorizontalScrollMode = ScrollMode.Disabled;
+        Scroller.VerticalScrollMode = ScrollMode.Disabled;
+        Scroller.ZoomMode = ZoomMode.Disabled;
+    }
+
+    /// <summary>Hands panning back. Safe to call when no gesture was owned.</summary>
+    private void EndExclusiveGesture(Pointer? pointer)
+    {
+        if (pointer is not null)
+        {
+            Canvas.ReleasePointerCapture(pointer);
+        }
+        if (!_gestureOwned)
+        {
+            return;
+        }
+        _gestureOwned = false;
+        Canvas.ManipulationMode = ManipulationModes.System;
+        Scroller.HorizontalScrollMode = ScrollMode.Enabled;
+        Scroller.VerticalScrollMode = ScrollMode.Enabled;
+        Scroller.ZoomMode = ZoomMode.Enabled;
+    }
+
+    // ---- hold to select ----
+    //
+    // Press-and-hold starts selecting text, because a plain finger drag has to
+    // stay available for scrolling or the document cannot be read at all. Same
+    // gesture as the browsers and Word.
+    //
+    // Timed here rather than taken from UIElement.Holding, which looks like
+    // exactly the right event and is not. Holding fires its Started state while
+    // the finger is still, and the system's gesture recognizer then treats the
+    // first real movement as the end of the hold: it abandons the gesture and
+    // CANCELS the pointer, capture and all. The trace was unambiguous — anchor
+    // set, eight moves at the press point, then one move of three pixels
+    // followed by PointerCaptureLost — and the visible result was a selection
+    // exactly one character wide. Doing our own timing keeps the contact ours
+    // from press to release and never hands it to the recognizer.
+
+    /// <summary>How long a finger must stay put before the hold counts, in ms.</summary>
+    private const int HoldToSelectMs = 500;
+
+    /// <summary>How far it may drift in that time and still count as still, in DIPs.</summary>
+    private const double HoldSlopDip = 12;
+
+    private DispatcherQueueTimer? _holdTimer;
+    private Point _holdOrigin;
+    private bool _holdArmed;
+
+    /// <summary>
+    /// Starts the clock on a touch press that nothing else claimed. If the
+    /// finger is still here when it runs out, the press becomes a selection; if
+    /// it travels first, it was a scroll and the timer is dropped.
+    /// </summary>
+    private void ArmHoldSelect(Point docPoint)
+    {
+        _holdOrigin = docPoint;
+        _holdArmed = true;
+
+        if (_holdTimer is null)
+        {
+            _holdTimer = _dispatcher.CreateTimer();
+            _holdTimer.Interval = TimeSpan.FromMilliseconds(HoldToSelectMs);
+            _holdTimer.IsRepeating = false;
+            _holdTimer.Tick += (_, _) => HoldElapsed();
+        }
+        _holdTimer.Start();
+    }
+
+    private void CancelHoldSelect()
+    {
+        _holdArmed = false;
+        _holdTimer?.Stop();
+    }
+
+    /// <summary>
+    /// The finger stayed put, so the press was a reach for the text rather than
+    /// a scroll. Takes the word under it, which the press-and-hold menu can then
+    /// copy or mark up, and which a second press can drag wider.
+    /// </summary>
+    private void HoldElapsed()
+    {
+        if (!_holdArmed || _activeTool != AnnotationTool.None || _gestureOwned)
+        {
+            return;
+        }
+        _holdArmed = false;
+        SelectWordAt(_holdOrigin);
+    }
+
+    /// <summary>Double-tap (or double-click) takes the word under the point.</summary>
+    private void Canvas_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        if (_activeTool == AnnotationTool.None && SelectWordAt(e.GetPosition(Canvas)))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Selects the whole word under a document point. Returns false when there
+    /// is no word there, so the caller can leave the gesture alone.
+    /// </summary>
+    private bool SelectWordAt(Point docPoint)
+    {
+        if (_layout is null)
+        {
+            return false;
+        }
+
+        int page = _layout.PageAt(docPoint.Y);
+        if (!_pageTexts.TryGetValue(page, out var pageText) || pageText is null)
+        {
+            EnsurePageText(page); // racing the first press on this page; the next one hits
+            return false;
+        }
+
+        var (localX, localY) = ToPageLocal(page, docPoint);
+        int index = pageText.CharIndexAt(localX, localY, 6 + TouchSlopPt(true));
+        var text = pageText.Text;
+        if (index < 0 || index >= text.Length || char.IsWhiteSpace(text[index]))
+        {
+            return false;
+        }
+
+        int start = index;
+        while (start > 0 && !char.IsWhiteSpace(text[start - 1]))
+        {
+            start--;
+        }
+        int end = index;
+        while (end + 1 < text.Length && !char.IsWhiteSpace(text[end + 1]))
+        {
+            end++;
+        }
+
+        _selectionPage = page;
+        _selectionAnchorChar = start;
+        _selection = pageText.GetSelection(start, end);
+        _isSelecting = false;
+        Canvas.Invalidate();
+        return true;
+    }
+
+    /// <summary>
+    /// A touch press that lands on text already selected grabs the selection's
+    /// nearer end and drags it, so a word picked out by a hold can be widened
+    /// into a sentence or a paragraph.
+    ///
+    /// This is the only way a finger can extend a selection, and the reason is
+    /// worth writing down: a contact cannot be taken back from the ScrollViewer
+    /// once it has started. Deciding to own a gesture 500 ms in does not work —
+    /// direct manipulation has the contact by then and revokes the capture the
+    /// instant the finger travels, which is exactly what a trace showed
+    /// (anchor set, ten stationary moves, then one move of three pixels
+    /// followed by PointerCaptureLost). Ownership has to be decided on the press
+    /// itself, and "the press landed on the existing selection" is something
+    /// that CAN be decided there. It is the same mechanism as the selection
+    /// handles a phone draws, without the handles.
+    /// </summary>
+    private bool TryExtendSelectionByTouch(Point docPoint, Pointer pointer)
+    {
+        if (_selection is not { Count: > 0 } sel || _layout is null)
+        {
+            return false;
+        }
+
+        int page = _layout.PageAt(docPoint.Y);
+        if (page != sel.PageIndex)
+        {
+            return false;
+        }
+
+        var (localX, localY) = ToPageLocal(page, docPoint);
+        double slop = TouchSlopPt(true);
+        bool onSelection = sel.Rects.Any(r =>
+            localX >= r.X - slop && localX <= r.X + r.Width + slop &&
+            localY >= r.Y - slop && localY <= r.Y + r.Height + slop);
+        if (!onSelection)
+        {
+            return false;
+        }
+
+        // Whichever end is further from the finger stays put, so the drag moves
+        // the end the user reached for.
+        int first = sel.Start;
+        int last = sel.Start + sel.Count - 1;
+        int hit = _pageTexts.TryGetValue(page, out var pageText) && pageText is not null
+            ? pageText.CharIndexAt(localX, localY, 6 + slop)
+            : -1;
+        _selectionAnchorChar = hit >= 0 && Math.Abs(hit - first) < Math.Abs(hit - last) ? last : first;
+        _selectionPage = page;
+        _isSelecting = true;
+        BeginExclusiveGesture(pointer);
+        return true;
+    }
+
+    private void Canvas_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        var doc = DocumentPointFromPointer(e);
+
+        if (_isDrawingInk)
+        {
+            // Only the contact that started the stroke draws it. A palm resting
+            // on the glass moves too, and following it would drag the line off
+            // across the page.
+            if (_inkPointerId is not { } inkId || e.Pointer.PointerId == inkId)
+            {
+                AppendInkPoint(doc);
+                e.Handled = true;
+            }
+            return;
+        }
+
+        if (_placingStamp)
+        {
+            UpdateStampPlacement(doc);
+            e.Handled = true;
+            return;
+        }
+
+        if (IsResizingStamp)
+        {
+            UpdateStampResize(doc);
+            e.Handled = true;
+            return;
+        }
+
+        if (_draggingStamp)
+        {
+            UpdateStampDrag(doc);
+            e.Handled = true;
+            return;
+        }
+
+        // Dragging inside a form field selects its text, which PDFium can only
+        // do if it sees the moves between the press and the release.
+        if (IsDraggingInFormField)
+        {
+            UpdateFormDrag(doc);
+            e.Handled = true;
+            return;
+        }
+
+        if (_isSelecting)
+        {
+            UpdateSelection(doc);
+            e.Handled = true;
+            return;
+        }
+
+        // Travelled before the hold matured, so the press was a scroll.
+        if (_holdArmed &&
+            Math.Abs(doc.X - _holdOrigin.X) + Math.Abs(doc.Y - _holdOrigin.Y) > HoldSlopDip)
+        {
+            CancelHoldSelect();
+        }
+
+        // Preview the pending picture under the cursor before it is placed.
+        if (UpdateStampHover(doc))
+        {
+            Canvas.Invalidate();
+        }
+
+        // Only offer the link cursor while reading; an armed tool owns the pointer.
+        if (_activeTool == AnnotationTool.None)
+        {
+            SetLinkCursor(HitTestLink(doc) is not null);
+        }
+    }
+
+    private void Canvas_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        // Leave no ghost stranded at the edge when the pointer goes elsewhere.
+        if (UpdateStampHover(null))
+        {
+            Canvas.Invalidate();
+        }
+    }
+
+    private void Canvas_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(Canvas).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        // A press on the page ends any trip to the format bar, so an open box
+        // goes back to committing on focus loss as normal. Without this a bar
+        // interaction that never restyled anything would leave the box unable to
+        // close itself.
+        SuspendTextCommit = false;
+        _activePointer = e.Pointer;
+
+        var docPoint = DocumentPointFromPointer(e);
+
+        if (IsInkMode)
+        {
+            BeginInkStroke(docPoint, e);
+            e.Handled = true;
+            return;
+        }
+
+        // An armed tool owns the click, ahead of forms, links and selection.
+        switch (_activeTool)
+        {
+            case AnnotationTool.Highlighter:
+                // Reuses the ordinary selection machinery; the mark is applied
+                // on release (see Canvas_PointerReleased), so dragging over text
+                // highlights it in one gesture. Exclusive whatever the device:
+                // the user armed the highlighter, so this drag is not a scroll.
+                BeginSelection(docPoint, e.Pointer, exclusive: true, touch: IsTouch(e));
+                e.Handled = true;
+                return;
+
+            case AnnotationTool.Note:
+                RequestNoteAt(docPoint);
+                e.Handled = true;
+                return;
+
+            case AnnotationTool.Text:
+                BeginTextAt(docPoint);
+                e.Handled = true;
+                return;
+
+            case AnnotationTool.Eraser:
+                _ = EraseAnnotationAt(docPoint);
+                e.Handled = true;
+                return;
+
+            case AnnotationTool.Signature or AnnotationTool.Image when HasPendingStamp:
+                BeginStampPlacement(docPoint, e.Pointer, IsTouch(e));
+                e.Handled = true;
+                return;
+        }
+
+        // A placed signature is grabbed before anything else claims the press,
+        // so dragging one never turns into a text selection through it.
+        if (TryHandleStampPress(docPoint, e.Pointer, IsTouch(e)))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // Form fields come before links and selection: a widget sitting on top
+        // of page text must take the click, not start a drag-select inside it.
+        if (TryHandleFormPress(docPoint, IsTouch(e)))
+        {
+            // The gesture is taken so the moves that select the field's text
+            // keep arriving even when the pointer wanders outside the widget,
+            // and so a finger dragging inside a field does not pan the page out
+            // from under it.
+            BeginExclusiveGesture(e.Pointer);
+            e.Handled = true;
+            return;
+        }
+
+        // Links take precedence over starting a selection.
+        var link = HitTestLink(docPoint, TouchSlopPt(IsTouch(e)));
+        if (link is not null)
+        {
+            if (link.IsInternal)
+            {
+                GoToPage(link.TargetPageIndex, recordHistory: true);
+            }
+            else if (link.Uri is { } uri)
+            {
+                LinkActivated?.Invoke(this, uri);
+            }
+            e.Handled = true;
+            return;
+        }
+
+        // A finger landing on text that is already selected drags that selection
+        // wider. Decided here, on the press, because it is the only moment
+        // ownership of a touch gesture can be decided at all.
+        if (IsTouch(e) && TryExtendSelectionByTouch(docPoint, e.Pointer))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // Nothing else claimed the press. A mouse starts selecting immediately;
+        // a finger only clears the old selection and leaves the drag to the
+        // ScrollViewer, because on touch a plain drag is how the page scrolls.
+        BeginSelection(docPoint, e.Pointer, exclusive: !IsTouch(e), touch: IsTouch(e));
+
+        // ...and starts the clock, so a finger that stays put picks out the word
+        // it is resting on instead.
+        if (IsTouch(e))
+        {
+            ArmHoldSelect(docPoint);
+        }
+    }
+
+    private void PdfViewer_CharacterReceived(UIElement sender, CharacterReceivedRoutedEventArgs e)
+    {
+        if (TryHandleFormCharacter(e.Character))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void PdfViewer_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (TryHandleFormKey(e.Key))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void Canvas_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        if (EndPointerGesture(e.Pointer, DocumentPointFromPointer(e), cancelled: false))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// The system took the pointer away: the ScrollViewer's pan won the contact,
+    /// a pen left range, or the window lost activation. No PointerReleased will
+    /// follow, so the same unwinding has to happen here or the viewer is left
+    /// mid-gesture with panning still switched off.
+    /// </summary>
+    private void Canvas_PointerCanceled(object sender, PointerRoutedEventArgs e)
+        => EndPointerGesture(e.Pointer, docPoint: null, cancelled: true);
+
+    /// <summary>
+    /// Unwinds whichever drag was in flight and hands panning back. Returns true
+    /// when there was one to unwind.
+    ///
+    /// A cancelled gesture abandons what it was building, with one exception: an
+    /// ink stroke commits anyway. It is already drawn on the screen, and making
+    /// it vanish because the system reassigned the pointer would read as the app
+    /// eating the user's work.
+    /// </summary>
+    private bool EndPointerGesture(Pointer? pointer, Point? docPoint, bool cancelled)
+    {
+        // A second contact lifting is not the end of the stroke the first one is
+        // still drawing.
+        if (_isDrawingInk && _inkPointerId is { } inkId &&
+            pointer is not null && pointer.PointerId != inkId)
+        {
+            return false;
+        }
+
+        bool had = true;
+
+        if (_isDrawingInk)
+        {
+            _inkPointerId = null;
+            CommitInkStroke();
+        }
+        else if (_placingStamp)
+        {
+            if (cancelled)
+            {
+                CancelStampPlacement();
+            }
+            else
+            {
+                CommitStampPlacement();
+            }
+        }
+        else if (IsResizingStamp)
+        {
+            if (cancelled)
+            {
+                CancelStampResize();
+            }
+            else
+            {
+                CommitStampResize();
+            }
+        }
+        else if (_draggingStamp)
+        {
+            if (cancelled)
+            {
+                CancelStampDrag();
+            }
+            else
+            {
+                CommitStampDrag();
+            }
+        }
+        else if (IsDraggingInFormField)
+        {
+            // A cancel has no position to finish the field's drag-select with,
+            // so it ends where the last move left it.
+            CommitFormDrag(docPoint ?? _lastFormDragPoint);
+        }
+        else if (_isSelecting)
+        {
+            _isSelecting = false;
+
+            // The highlighter turns the drag into a mark and clears the
+            // selection, so the whole thing reads as one gesture rather than
+            // leaving text selected behind it.
+            if (!cancelled && _activeTool == AnnotationTool.Highlighter && HasSelection)
+            {
+                MarkupSelection(_markupKind, _markupColor, _markupAlpha);
+                ClearSelectionState();
+                Canvas.Invalidate();
+            }
+        }
+        else
+        {
+            had = false;
+        }
+
+        EndExclusiveGesture(pointer);
+        CancelHoldSelect();
+        _activePointer = null;
+        return had;
+    }
+
+    // ------------------------------------------------------- tool gestures
+
+    /// <summary>Note tool: ask the shell for the note text at this point.</summary>
+    private void RequestNoteAt(Point docPoint)
+    {
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+        int page = _layout.PageAt(docPoint.Y);
+        var local = ToPageLocal(page, docPoint);
+        NoteRequested?.Invoke(this, (page, local.X, local.Y));
+    }
+
+    /// <summary>Eraser tool: delete the annotation under the pointer, undoably.</summary>
+    private async Task EraseAnnotationAt(Point docPoint)
+    {
+        if (_layout is null || _document is not { } document)
+        {
+            return;
+        }
+
+        int page = _layout.PageAt(docPoint.Y);
+        var local = ToPageLocal(page, docPoint);
+
+        IReadOnlyList<AnnotationInfo> annotations;
+        try
+        {
+            annotations = await _scheduler.RunAsync(
+                PdfWorkPriority.Interactive, () => document.GetAnnotations(page));
+        }
+        catch
+        {
+            return;
+        }
+        if (_document != document)
+        {
+            return;
+        }
+
+        var hit = HitTestAnnotation(annotations, local.X, local.Y);
+        if (hit is null)
+        {
+            return;
+        }
+
+        AnnotationSpec? spec;
+        try
+        {
+            spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+            {
+                // Capture before removing so undo can rebuild it.
+                var captured = document.CaptureAnnotation(page, hit.Index);
+                document.RemoveAnnotation(page, hit.Index);
+                return captured;
+            });
+        }
+        catch
+        {
+            return;
+        }
+        if (_document != document)
+        {
+            return;
+        }
+
+        InvalidatePage(page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        if (spec is not null)
+        {
+            AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+            {
+                Label = "erase",
+                PageIndex = page,
+                // A stamp's spec carries its pixels; markup and ink carry only
+                // geometry, so they cost the undo stack's memory cap nothing.
+                SnapshotBytes = spec.Stamp?.ByteCount ?? 0,
+                UndoAction = d => d.AddAnnotationFromSpec(spec),
+                // Undo re-adds by appending, so what redo has to remove is the
+                // LAST annotation, not the index the erase originally hit. Redo
+                // only ever runs after an undo, so this is always the right one,
+                // and it is what the right-click delete has always done.
+                RedoAction = d => d.RemoveLastAnnotation(page),
+            });
+        }
+    }
+
+    /// <summary>
+    /// The topmost editable annotation containing a page-local point, or null.
+    /// Shared by the eraser and the right-click "Delete annotation" entry so the
+    /// two can never disagree about what is under the pointer.
+    /// </summary>
+    private static AnnotationInfo? HitTestAnnotation(IReadOnlyList<AnnotationInfo> annotations, double localX, double localY)
+        => annotations.LastOrDefault(annot =>
+            annot.Subtype != 2 /* links aren't editable */ &&
+            localX >= annot.X - 4 && localX <= annot.X + annot.Width + 4 &&
+            localY >= annot.Y - 4 && localY <= annot.Y + annot.Height + 4);
+
+    // ---------------------------------------------------------------- ink capture
+
+    /// <summary>
+    /// The contact that owns the stroke in progress. A stroke used to belong to
+    /// whichever pointer pressed last, so on a 2-in-1 a resting palm or a second
+    /// finger restarted it halfway through and the first half was lost. Only the
+    /// pointer that began a stroke may extend or end it.
+    /// </summary>
+    private uint? _inkPointerId;
+
+    private void BeginInkStroke(Point docPoint, PointerRoutedEventArgs e)
+    {
+        // A pen and a hand arrive together: the pen writes, the hand rests on
+        // the glass. While a pen is drawing, touch is not a second stroke.
+        if (_isDrawingInk && IsTouch(e))
+        {
+            return;
+        }
+
+        // Raised first: the user pressed to draw, so the pen panel should get
+        // out of the way even if there is nothing to draw on.
+        InkStrokeStarted?.Invoke(this, EventArgs.Empty);
+
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+        _inkPage = _layout.PageAt(docPoint.Y);
+        _inkPoints.Clear();
+        _inkPoints.Add(ClampToPage(_inkPage, docPoint));
+        _isDrawingInk = true;
+        _inkPointerId = e.Pointer.PointerId;
+        BeginExclusiveGesture(e.Pointer);
+    }
+
+    private void AppendInkPoint(Point docPoint)
+    {
+        var p = ClampToPage(_inkPage, docPoint);
+        // Skip sub-pixel jitter to keep the stroke light.
+        if (_inkPoints.Count == 0 || Math.Abs(p.X - _inkPoints[^1].X) + Math.Abs(p.Y - _inkPoints[^1].Y) >= 1.0)
+        {
+            _inkPoints.Add(p);
+            InvalidateInkArea();
+        }
+    }
+
+    private async void CommitInkStroke()
+    {
+        _isDrawingInk = false;
+        if (_document is null || _inkPage < 0 || _inkPoints.Count < 2)
+        {
+            _inkPoints.Clear();
+            Canvas.Invalidate();
+            return;
+        }
+
+        // The live stroke is captured in document space so it can be drawn
+        // without a per-point conversion; the file wants unrotated page-local.
+        var stroke = _inkPoints.Select(p => ToPageLocal(_inkPage, p)).ToList();
+
+        var document = _document;
+        int page = _inkPage;
+        var (cr, cg, cb) = (_inkColor.R, _inkColor.G, _inkColor.B);
+        float width = (float)_inkWidthPt;
+        _inkPoints.Clear();
+        _inkPage = -1;
+
+        AnnotationSpec? spec;
+        try
+        {
+            spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+            {
+                document.AddInk(page, stroke, cr, cg, cb, 255, width);
+                return document.CaptureLastAnnotation(page);
+            });
+        }
+        catch
+        {
+            Canvas.Invalidate(); // stroke is lost (doc swapped/closed); clear the live line
+            return;
+        }
+        if (_document != document)
+        {
+            return;
+        }
+        InvalidatePage(page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        RaiseAnnotationAdded("ink", page, spec);
+    }
+
+    private void CancelInkStroke()
+    {
+        _isDrawingInk = false;
+        _inkPoints.Clear();
+        _inkPage = -1;
+        Canvas.Invalidate();
+    }
+
+    private Point ClampToPage(int page, Point docPoint)
+    {
+        if (_layout is null)
+        {
+            return docPoint;
+        }
+        var r = _layout.GetPageRect(page);
+        return new Point(Math.Clamp(docPoint.X, r.X, r.Right), Math.Clamp(docPoint.Y, r.Y, r.Bottom));
+    }
+
+    private void InvalidateInkArea()
+    {
+        // Repaint a small box around the last segment (cheap live feedback).
+        if (_inkPoints.Count < 2)
+        {
+            return;
+        }
+        var a = _inkPoints[^2];
+        var b = _inkPoints[^1];
+        double pad = _inkWidthPt * _zoom + 4;
+        Canvas.Invalidate(new Rect(
+            Math.Min(a.X, b.X) - pad, Math.Min(a.Y, b.Y) - pad,
+            Math.Abs(a.X - b.X) + 2 * pad, Math.Abs(a.Y - b.Y) + 2 * pad));
+    }
+
+    // ---------------------------------------------------------------- selection
+
+    /// <summary>
+    /// Starts a drag-selection, or — when <paramref name="exclusive"/> is false —
+    /// only clears whatever was selected.
+    ///
+    /// That distinction is what lets a finger read the document. A press that
+    /// lands on a glyph used to capture the pointer unconditionally, and
+    /// capturing a touch contact stops the ScrollViewer panning with it. On a
+    /// page of prose nearly every pixel is a glyph, so dragging a finger
+    /// selected text instead of scrolling and the document could not be moved
+    /// at all. Touch now selects by holding first (see Canvas_Holding); a plain
+    /// touch drag falls through to the pan it always should have been.
+    /// </summary>
+    private void BeginSelection(Point docPoint, Pointer? pointer, bool exclusive, bool touch = false)
+    {
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+
+        int page = _layout.PageAt(docPoint.Y);
+        var (localX, localY) = ToPageLocal(page, docPoint);
+
+        // Hit-test against the cached text map — never PDFium on the pointer
+        // path. If the map hasn't arrived yet (racing the very first press),
+        // kick off extraction; the next press will hit.
+        if (!_pageTexts.TryGetValue(page, out var pageText))
+        {
+            EnsurePageText(page);
+        }
+        int charIndex = pageText?.CharIndexAt(localX, localY, 6 + TouchSlopPt(touch)) ?? -1;
+
+        // Clear any previous selection regardless of whether we hit a glyph.
+        bool hadSelection = HasSelection;
+        _selection = null;
+        _selectionPage = page;
+        _selectionAnchorChar = charIndex;
+
+        if (charIndex >= 0 && exclusive)
+        {
+            _isSelecting = true;
+            BeginExclusiveGesture(pointer);
+        }
+        if (hadSelection)
+        {
+            Canvas.Invalidate();
+        }
+    }
+
+    private void UpdateSelection(Point docPoint)
+    {
+        // Selection stays on the page it started on (single-page selection).
+        // Everything here is a managed lookup on the cached text map — this
+        // runs on every PointerMoved during a drag and must never touch PDFium.
+        if (_document is null || _selectionPage < 0 || _selectionAnchorChar < 0 ||
+            !_pageTexts.TryGetValue(_selectionPage, out var pageText))
+        {
+            return;
+        }
+
+        var (localX, localY) = ToPageLocal(_selectionPage, docPoint);
+        int focusChar = pageText.CharIndexAt(localX, localY);
+        if (focusChar < 0)
+        {
+            return;
+        }
+
+        _selection = pageText.GetSelection(_selectionAnchorChar, focusChar);
+        Canvas.Invalidate();
+    }
+
+    /// <summary>
+    /// Document (layout) point → <b>unrotated</b> page-local points (top-left
+    /// origin, unscaled) — the space page text, links, form fields, annotations
+    /// and stamps are all measured in.
+    ///
+    /// Undoing the centering offset and the zoom only gets as far as the *drawn*
+    /// box; on a quarter turn that box has the page's axes swapped, so the last
+    /// step has to undo the rotation too. Skipping it is what forced every
+    /// interactive path to disable itself while rotated.
+    /// </summary>
+    private (double X, double Y) ToPageLocal(int page, Point docPoint)
+    {
+        var rect = _layout!.GetPageRect(page);
+        return RotationFor(page).ToUnrotated((docPoint.X - rect.X) / _zoom, (docPoint.Y - rect.Y) / _zoom);
+    }
+
+    /// <summary>Unrotated page-local point → document (layout) space. The inverse of <see cref="ToPageLocal"/>.</summary>
+    private Point ToDocumentPoint(int page, double localX, double localY)
+    {
+        var rect = _layout!.GetPageRect(page);
+        var (drawnX, drawnY) = RotationFor(page).ToDrawn(localX, localY);
+        return new Point(rect.X + drawnX * _zoom, rect.Y + drawnY * _zoom);
+    }
+
+    /// <summary>The current view rotation paired with a page's own unrotated size.</summary>
+    private PageRotationTransform RotationFor(int page)
+    {
+        var size = _pageSizes[Math.Clamp(page, 0, _pageSizes.Length - 1)];
+        return new PageRotationTransform(_rotation, size.Width, size.Height);
+    }
+
+    public void ClearSelection()
+    {
+        if (HasSelection)
+        {
+            _selection = null;
+            _selectionPage = -1;
+            _selectionAnchorChar = -1;
+            Canvas.Invalidate();
+        }
+    }
+
+    // ---------------------------------------------------------------- search
+
+    /// <summary>Shows all hits as highlights (grouped by page). Does not scroll.</summary>
+    public void SetSearchResults(IReadOnlyList<SearchHit> hits)
+    {
+        _searchByPage.Clear();
+        foreach (var hit in hits)
+        {
+            if (!_searchByPage.TryGetValue(hit.PageIndex, out var list))
+            {
+                _searchByPage[hit.PageIndex] = list = [];
+            }
+            list.Add(hit);
+        }
+        Canvas.Invalidate();
+    }
+
+    /// <summary>Emphasizes one hit and scrolls it into view.</summary>
+    public void HighlightHit(SearchHit hit)
+    {
+        _activeHit = hit;
+        if (_layout is not null && hit.Rects.Count > 0)
+        {
+            var pageRect = _layout.GetPageRect(hit.PageIndex);
+            // Where the hit is *drawn*, not where the file puts it: on a quarter
+            // turn a hit near the top of the page can be anywhere down the side.
+            var drawn = RotationFor(hit.PageIndex).ToDrawn(hit.Rects[0]);
+            double hitTop = pageRect.Y + drawn.Y * _zoom;
+            // Center the hit in the viewport where possible.
+            double target = Math.Max(0, hitTop - Scroller.ViewportHeight / 2);
+            Scroller.ChangeView(null, target, null, disableAnimation: true);
+        }
+        Canvas.Invalidate();
+    }
+
+    public void ClearSearch()
+    {
+        _searchByPage.Clear();
+        _activeHit = null;
+        Canvas.Invalidate();
+    }
+
+    /// <summary>Pointer position translated into document (layout) space, in DIPs.</summary>
+    private Point DocumentPointFromPointer(PointerRoutedEventArgs e)
+    {
+        var p = e.GetCurrentPoint(Canvas).Position;
+        return new Point(p.X, p.Y);
+    }
+
+    /// <summary>
+    /// The link under a document point, or null. <paramref name="slop"/> widens
+    /// every link rect by that many page points, which is how a fingertip hits a
+    /// line of link text a mouse pointer lands on exactly. Zero for a mouse.
+    /// </summary>
+    private PdfLink? HitTestLink(Point documentPoint, double slop = 0)
+    {
+        if (_layout is null || _document is null)
+        {
+            return null;
+        }
+
+        int page = _layout.PageAt(documentPoint.Y);
+        EnsureLinks(page);
+        if (!_links.TryGetValue(page, out var links) || links.Count == 0)
+        {
+            return null;
+        }
+
+        var (localX, localY) = ToPageLocal(page, documentPoint);
+        foreach (var link in links)
+        {
+            if (localX >= link.X - slop && localX <= link.X + link.Width + slop &&
+                localY >= link.Y - slop && localY <= link.Y + link.Height + slop)
+            {
+                return link;
+            }
+        }
+        return null;
+    }
+
+    private async void EnsureLinks(int pageIndex)
+    {
+        if (_document is null || !_linksRequested.Add(pageIndex))
+        {
+            return;
+        }
+        var document = _document;
+        try
+        {
+            var links = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () => document.GetLinks(pageIndex));
+            if (_document == document)
+            {
+                _links[pageIndex] = links;
+            }
+        }
+        catch
+        {
+            // Best-effort; also covers cancellation when the document swaps.
+        }
+    }
+
+    private async void EnsurePageText(int pageIndex)
+    {
+        if (_document is null || !_pageTextRequested.Add(pageIndex))
+        {
+            return;
+        }
+        var document = _document;
+        try
+        {
+            var text = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () => document.GetPageText(pageIndex));
+            if (_document == document)
+            {
+                InsertPageText(pageIndex, text);
+            }
+        }
+        catch
+        {
+            _pageTextRequested.Remove(pageIndex); // retry on the next prefetch
+        }
+    }
+
+    private void InsertPageText(int pageIndex, PageText text)
+    {
+        if (_pageTexts.ContainsKey(pageIndex))
+        {
+            _pageTextLru.Remove(pageIndex);
+        }
+        _pageTexts[pageIndex] = text;
+        _pageTextLru.AddFirst(pageIndex);
+
+        while (_pageTextLru.Count > PageTextCacheCapacity && _pageTextLru.Last is { } oldest)
+        {
+            _pageTexts.Remove(oldest.Value);
+            _pageTextRequested.Remove(oldest.Value);
+            _pageTextLru.RemoveLast();
+        }
+    }
+
+    private void ClearPageTextCache()
+    {
+        _pageTexts.Clear();
+        _pageTextLru.Clear();
+        _pageTextRequested.Clear();
+    }
+
+    private void SetLinkCursor(bool overLink)
+    {
+        if (overLink == _pointerOverLink)
+        {
+            return;
+        }
+        _pointerOverLink = overLink;
+        ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+            overLink ? Microsoft.UI.Input.InputSystemCursorShape.Hand
+                     : Microsoft.UI.Input.InputSystemCursorShape.Arrow);
+    }
+
+    // ---------------------------------------------------------------- drawing
+
+    private void Canvas_CreateResources(CanvasVirtualControl sender, object args)
+    {
+        // First device creation or device-lost recovery: cached bitmaps are
+        // tied to the old device and must be rebuilt from scratch.
+        ClearCaches();
+        if (_document is not null)
+        {
+            UpdateDesiredTiles();
+        }
+    }
+
+    private void Canvas_RegionsInvalidated(CanvasVirtualControl sender, CanvasRegionsInvalidatedEventArgs args)
+    {
+        foreach (var region in args.InvalidatedRegions)
+        {
+            using var session = sender.CreateDrawingSession(region);
+            DrawRegion(session, region);
+        }
+        // Safety net for regions the virtual control materializes without a
+        // ViewChanged (e.g. fast flicks) — coalesced, not per-draw.
+        RequestDesiredUpdate();
+    }
+
+    /// <summary>
+    /// Whether the area *around* the pages should be dark.
+    ///
+    /// Night mode counts, not just the app theme: inverted black pages sitting
+    /// on a light grey field is the worst-looking combination in the app, and
+    /// it is reachable simply by using night mode in the light theme.
+    /// </summary>
+    private bool DarkSurround => _nightMode || ActualTheme == ElementTheme.Dark;
+
+    private void ApplyViewerBackground()
+    {
+        var brush = new Microsoft.UI.Xaml.Media.SolidColorBrush(RuneColors.ViewerBackground(DarkSurround));
+        Background = brush;
+        Scroller.Background = brush;
+    }
+
+    private void DrawRegion(CanvasDrawingSession session, Rect region)
+    {
+        bool darkSurround = DarkSurround;
+        session.Clear(RuneColors.ViewerBackground(darkSurround));
+
+        if (_layout is null || _document is null)
+        {
+            return;
+        }
+
+        var (first, last) = _layout.PagesInVerticalRange(region.Y, region.Bottom);
+        if (last < first)
+        {
+            return;
+        }
+
+        float scale = RenderScale;
+        int scaleKey = TileKey.ToScaleKey(scale);
+        DebugLog($"DRAW region=({region.X:0},{region.Y:0},{region.Width:0}x{region.Height:0}) pages={first}-{last} rot={_rotation} scaleKey={scaleKey} tiles={_tiles.Count} previews={_previews.Count}");
+        double rasterScale = DisplayScale;
+        var borderColor = RuneColors.PageBorder(darkSurround);
+
+        for (int i = first; i <= last; i++)
+        {
+            var pageRect = _layout.GetPageRect(i);
+            var pageXamlRect = new Rect(pageRect.X, pageRect.Y, pageRect.Width, pageRect.Height);
+
+            session.FillRectangle(pageXamlRect, RuneColors.PageFill(_nightMode));
+
+            if (_previews.TryGetValue(i, out var preview))
+            {
+                DrawPageImage(session, preview.Bitmap, pageXamlRect);
+            }
+
+            var (pagePxW, pagePxH) = _document.GetPagePixelSize(i, scale, _rotation);
+            var (cols, rows) = TileMath.GridFor(pagePxW, pagePxH);
+            for (int row = 0; row < rows; row++)
+            {
+                for (int col = 0; col < cols; col++)
+                {
+                    var key = new TileKey(i, scaleKey, _rotation, row, col, IsPreview: false);
+                    if (_tiles.TryGetValue(key, out var entry))
+                    {
+                        var (srcX, srcY, w, h) = TileMath.TileWindow(pagePxW, pagePxH, row, col);
+                        var dest = new Rect(
+                            pageRect.X + srcX / rasterScale,
+                            pageRect.Y + srcY / rasterScale,
+                            w / rasterScale,
+                            h / rasterScale);
+                        DebugLog($"  HIT {key.PageIndex}/{key.Row},{key.Col} bmp={entry.Bitmap.SizeInPixels.Width}x{entry.Bitmap.SizeInPixels.Height} dest=({dest.X:0},{dest.Y:0},{dest.Width:0}x{dest.Height:0}) night={_nightMode}");
+                        DrawPageImage(session, entry.Bitmap, dest);
+                        TouchTile(key);
+                    }
+                    else if (DebugLogEnabled)
+                    {
+                        DebugLog($"  MISS {key}");
+                    }
+                }
+            }
+
+            DrawHighlights(session, i, pageRect);
+            DrawFormFieldBorders(session, i, pageRect);
+            session.DrawRectangle(pageXamlRect, borderColor, 1);
+        }
+
+        DrawLiveInk(session);
+        DrawStampSelection(session);
+        DrawStampGhost(session);
+    }
+
+    /// <summary>Draws the in-progress ink stroke as a polyline (committed once released).</summary>
+    private void DrawLiveInk(CanvasDrawingSession session)
+    {
+        if (!_isDrawingInk || _inkPoints.Count < 2)
+        {
+            return;
+        }
+        float strokeWidth = (float)(_inkWidthPt * _zoom);
+        for (int i = 1; i < _inkPoints.Count; i++)
+        {
+            var a = _inkPoints[i - 1];
+            var b = _inkPoints[i];
+            session.DrawLine((float)a.X, (float)a.Y, (float)b.X, (float)b.Y, _inkColor, strokeWidth);
+        }
+    }
+
+    /// <summary>
+    /// Draws page content, inverting colors on the GPU in night mode. Cached
+    /// tiles stay in normal colors, so toggling costs nothing but a repaint.
+    /// </summary>
+    private void DrawPageImage(CanvasDrawingSession session, CanvasBitmap bitmap, Rect dest)
+    {
+        if (_nightMode)
+        {
+            _invertEffect ??= new Microsoft.Graphics.Canvas.Effects.InvertEffect();
+            _invertEffect.Source = bitmap;
+            session.DrawImage(_invertEffect, dest, bitmap.Bounds);
+        }
+        else
+        {
+            session.DrawImage(bitmap, dest, bitmap.Bounds);
+        }
+    }
+
+    private void DrawHighlights(CanvasDrawingSession session, int pageIndex, DipRect pageRect)
+    {
+        // Overlays are painted after the tiles and are NOT put through the
+        // invert effect, so their colours key on night mode directly.
+        var searchColor = RuneColors.Search(_nightMode);
+        var activeSearchColor = RuneColors.ActiveSearch(_nightMode);
+
+        // Search hits (only visible pages carry entries).
+        if (_searchByPage.TryGetValue(pageIndex, out var hits))
+        {
+            foreach (var hit in hits)
+            {
+                bool active = ReferenceEquals(hit, _activeHit) ||
+                              (_activeHit is not null && hit.PageIndex == _activeHit.PageIndex && hit.CharIndex == _activeHit.CharIndex);
+                var color = active ? activeSearchColor : searchColor;
+                foreach (var r in hit.Rects)
+                {
+                    session.FillRectangle(HighlightRect(pageIndex, pageRect, r), color);
+                }
+            }
+        }
+
+        // Text selection (single page).
+        if (_selection is { Count: > 0 } selection && selection.PageIndex == pageIndex)
+        {
+            foreach (var r in selection.Rects)
+            {
+                session.FillRectangle(HighlightRect(pageIndex, pageRect, r), RuneColors.Selection(_nightMode));
+            }
+        }
+    }
+
+    /// <summary>
+    /// A page-local text rect → where to paint it, in document space. The rect
+    /// describes the file, so it has to be rotated into the drawn box before it
+    /// is scaled and offset, or a highlight lands beside its words on a quarter
+    /// turn instead of on them.
+    /// </summary>
+    private Rect HighlightRect(int pageIndex, DipRect pageRect, TextRect r)
+    {
+        var d = RotationFor(pageIndex).ToDrawn(r);
+        return new Rect(pageRect.X + d.X * _zoom, pageRect.Y + d.Y * _zoom, d.Width * _zoom, d.Height * _zoom);
+    }
+
+    // ---------------------------------------------------------------- tile pipeline
+
+    /// <summary>
+    /// Recomputes the full prioritized want-list (visible tiles â†’ previews â†’
+    /// prefetch) and hands it to the render thread, replacing the old list.
+    /// </summary>
+    /// <summary>
+    /// Target width for the whole-page preview at a given render scale.
+    ///
+    /// 216 px is the right size for a page shown at 100%, but stretched over a
+    /// page zoomed to 200%+ it is visibly mushy — and the preview is exactly
+    /// what shows while crisp tiles are still rendering. Past a threshold, ask
+    /// for a proportionally sharper one.
+    ///
+    /// Hard-capped at <see cref="TileMath.MaxSingleTilePx"/>: bitmaps much
+    /// wider than ~1.5k px silently fail to draw inside CanvasVirtualControl
+    /// sessions (the old "rotate shows a blank page" bug), so nothing the
+    /// viewer creates is allowed past the tile edge.
+    /// </summary>
+    private static float PreviewWidthFor(float renderScale)
+    {
+        if (renderScale <= 1.5f)
+        {
+            return PreviewTargetWidthPx;
+        }
+        float scaled = PreviewTargetWidthPx * (renderScale / 1.5f);
+        return Math.Min(scaled, TileMath.MaxSingleTilePx);
+    }
+
+    private void UpdateDesiredTiles()
+    {
+        if (_layout is null || _document is null)
+        {
+            _scheduler.SetDesired([]);
+            return;
+        }
+
+        // A viewport with no area yields an empty want-list, and asking for
+        // nothing is indistinguishable from being told to render nothing: the
+        // page stays blank and nothing ever asks again, because the view has
+        // not changed. That is reachable in one gesture — switch to another tab
+        // and back, then rotate. The returning tab's ScrollViewer has not been
+        // measured yet, so it is still 0x0 when Rotate() rebuilds the list, and
+        // the page (and its thumbnails) stay white until the window is resized.
+        // Retry on the coalescing timer instead, by which point layout has run.
+        if (Scroller.ViewportWidth <= 0 || Scroller.ViewportHeight <= 0)
+        {
+            RequestDesiredUpdate();
+            return;
+        }
+
+        float zoomFactor = Scroller.ZoomFactor;
+        if (Math.Abs(zoomFactor - 1f) > 0.001f)
+        {
+            // Mid-pinch the offsets are in scaled space, so a want-list built
+            // now would be wrong — but never just give up. A pinch whose final
+            // (non-intermediate) ViewChanged is missed used to leave ZoomFactor
+            // off 1 permanently, and since this was an unconditional return, no
+            // crisp tile was ever requested again: the page stayed blurry
+            // forever. If we're not actively being manipulated, fold the factor
+            // in ourselves and carry on.
+            if (!_rebasingZoom && !_manipulating && !_healingZoom)
+            {
+                // RebaseZoom calls back into this method, so guard the reentry
+                // or a ChangeView that keeps failing would spin forever.
+                _healingZoom = true;
+                try
+                {
+                    RebaseZoom(zoomFactor);
+                }
+                finally
+                {
+                    _healingZoom = false;
+                }
+            }
+            return;
+        }
+
+        var viewport = new DipRect(Scroller.HorizontalOffset, Scroller.VerticalOffset, Scroller.ViewportWidth, Scroller.ViewportHeight);
+        var extended = new DipRect(viewport.X, viewport.Y - viewport.Height * 0.5, viewport.Width, viewport.Height * 2);
+
+        float scale = RenderScale;
+        int scaleKey = TileKey.ToScaleKey(scale);
+        var visible = new List<TileRequest>();
+        var previews = new List<TileRequest>();
+        var prefetch = new List<TileRequest>();
+
+        var (first, last) = _layout.PagesInVerticalRange(extended.Y, extended.Bottom);
+        for (int i = first; i <= last && last >= first; i++)
+        {
+            var pageRect = _layout.GetPageRect(i);
+            var (pagePxW, pagePxH) = _document.GetPagePixelSize(i, scale, _rotation);
+            var (cols, rows) = TileMath.GridFor(pagePxW, pagePxH);
+
+            for (int row = 0; row < rows; row++)
+            {
+                for (int col = 0; col < cols; col++)
+                {
+                    var (srcX, srcY, w, h) = TileMath.TileWindow(pagePxW, pagePxH, row, col);
+                    var tileRect = new DipRect(
+                        pageRect.X + srcX / DisplayScale,
+                        pageRect.Y + srcY / DisplayScale,
+                        w / DisplayScale,
+                        h / DisplayScale);
+                    if (!tileRect.Intersects(extended))
+                    {
+                        continue;
+                    }
+
+                    var key = new TileKey(i, scaleKey, _rotation, row, col, IsPreview: false);
+                    if (_tiles.ContainsKey(key) && !_staleTiles.Contains(key))
+                    {
+                        continue;
+                    }
+
+                    var request = new TileRequest(key, scale, srcX, srcY, w, h);
+                    (tileRect.Intersects(viewport) ? visible : prefetch).Add(request);
+                }
+            }
+
+            var previewSize = _pageSizes[i];
+            float previewPageWidthPt = _rotation % 2 == 0 ? previewSize.Width : previewSize.Height;
+            float wantedPreviewScale = PreviewWidthFor(scale) / previewPageWidthPt;
+            int wantedPreviewKey = TileKey.ToScaleKey(wantedPreviewScale);
+
+            // Re-request when the preview is missing, stale, or was rendered
+            // for a different zoom tier — otherwise a page zoomed well past
+            // 100% keeps showing the 216px placeholder stretched over it.
+            if (!_previews.TryGetValue(i, out var cachedPreview)
+                || cachedPreview.ScaleKey != wantedPreviewKey
+                || _stalePreviews.Contains(i))
+            {
+                float previewScale = wantedPreviewScale;
+                var (pw, ph) = _document.GetPagePixelSize(i, previewScale, _rotation);
+                previews.Add(new TileRequest(
+                    new TileKey(i, wantedPreviewKey, _rotation, 0, 0, IsPreview: true),
+                    previewScale, 0, 0, pw, ph));
+            }
+        }
+
+        visible.AddRange(previews);
+        visible.AddRange(prefetch);
+        DebugLog($"WANT rot={_rotation} zoom={_zoom:0.###} scale={scale:0.###} n={visible.Count} vp=({viewport.X:0},{viewport.Y:0},{viewport.Width:0},{viewport.Height:0}) zf={Scroller.ZoomFactor:0.###}");
+        _scheduler.SetDesired(visible);
+    }
+
+    /// <summary>Called on the render thread; hop to the UI thread to touch caches.</summary>
+    private void OnTileRendered(TileRequest request, PageBitmap bitmap)
+    {
+        bool queued = _dispatcher.TryEnqueue(() =>
+        {
+            try
+            {
+                HandleRenderedTile(request, bitmap);
+            }
+            finally
+            {
+                bitmap.Return(); // pixels are on the GPU (or discarded) — recycle the buffer
+            }
+        });
+        if (!queued)
+        {
+            bitmap.Return();
+        }
+    }
+
+    private void HandleRenderedTile(TileRequest request, PageBitmap bitmap)
+    {
+        // Both drop paths clear the stale mark: the replacement is never
+        // arriving, so leaving the key marked would make UpdateDesiredTiles
+        // re-request this tile on every single pass, starving the tiles that
+        // are actually on screen.
+        if (_document is null || _layout is null || request.Key.Rotation != _rotation)
+        {
+            DebugLog($"DROP rot-mismatch key={request.Key} cur_rot={_rotation}");
+            ForgetStale(request.Key);
+            return;
+        }
+
+        // A zoom change while this tile was in flight makes it useless.
+        if (!request.Key.IsPreview && request.Key.ScaleKey != TileKey.ToScaleKey(RenderScale))
+        {
+            DebugLog($"DROP scale-mismatch key={request.Key} cur={TileKey.ToScaleKey(RenderScale)}");
+            ForgetStale(request.Key);
+            return;
+        }
+        if (DebugLogEnabled)
+        {
+            int ink = 0;
+            for (int y = 0; y < bitmap.Height; y += 7)
+            {
+                for (int x = 0; x < bitmap.Width; x += 7)
+                {
+                    int i = y * bitmap.Stride + x * 4;
+                    if (bitmap.Pixels[i] != 0xFF || bitmap.Pixels[i + 1] != 0xFF || bitmap.Pixels[i + 2] != 0xFF)
+                    {
+                        ink++;
+                    }
+                }
+            }
+            DebugLog($"KEEP key={request.Key} {bitmap.Width}x{bitmap.Height} sampledInk={ink}");
+        }
+
+        CanvasBitmap canvasBitmap;
+        try
+        {
+            canvasBitmap = CanvasBitmap.CreateFromBytes(
+                Canvas, bitmap.Pixels, bitmap.Width, bitmap.Height,
+                DirectXPixelFormat.B8G8R8A8UIntNormalized);
+        }
+        catch (Exception)
+        {
+            return; // device lost mid-flight; CreateResources will rebuild
+        }
+
+        if (request.Key.IsPreview)
+        {
+            InsertPreview(request.Key.PageIndex, request.Key.ScaleKey, canvasBitmap);
+        }
+        else
+        {
+            InsertTile(request.Key, canvasBitmap);
+        }
+
+        // Repaint just this tile's area.
+        var pageRect = _layout.GetPageRect(request.Key.PageIndex);
+        double rs = DisplayScale;
+        var dirty = request.Key.IsPreview
+            ? new Rect(pageRect.X, pageRect.Y, pageRect.Width, pageRect.Height)
+            : new Rect(
+                pageRect.X + request.SrcX / rs,
+                pageRect.Y + request.SrcY / rs,
+                request.WidthPx / rs,
+                request.HeightPx / rs);
+        Canvas.Invalidate(dirty);
+    }
+
+    /// <summary>Drops a stale mark for a tile whose re-render will never land.</summary>
+    private void ForgetStale(TileKey key)
+    {
+        if (key.IsPreview)
+        {
+            _stalePreviews.Remove(key.PageIndex);
+        }
+        else
+        {
+            _staleTiles.Remove(key);
+        }
+    }
+
+    private void InsertTile(TileKey key, CanvasBitmap bitmap)
+    {
+        _staleTiles.Remove(key); // the replacement has arrived
+        if (_tiles.TryGetValue(key, out var existing))
+        {
+            _tileBytes -= (long)existing.Bitmap.SizeInPixels.Width * existing.Bitmap.SizeInPixels.Height * 4;
+            _tileLru.Remove(existing.Node);
+            existing.Bitmap.Dispose();
+        }
+
+        var node = _tileLru.AddFirst(key);
+        _tiles[key] = (bitmap, node);
+        _tileBytes += (long)bitmap.SizeInPixels.Width * bitmap.SizeInPixels.Height * 4;
+
+        while (_tileBytes > TileCacheBudgetBytes && _tileLru.Last is { } oldest)
+        {
+            var (evicted, evictedNode) = _tiles[oldest.Value];
+            _tileBytes -= (long)evicted.SizeInPixels.Width * evicted.SizeInPixels.Height * 4;
+            _tiles.Remove(oldest.Value);
+            _tileLru.Remove(evictedNode);
+            _staleTiles.Remove(oldest.Value); // gone from the cache; nothing left to refresh
+            evicted.Dispose();
+        }
+    }
+
+    private void TouchTile(TileKey key)
+    {
+        if (_tiles.TryGetValue(key, out var entry))
+        {
+            _tileLru.Remove(entry.Node);
+            _tiles[key] = (entry.Bitmap, _tileLru.AddFirst(key));
+        }
+    }
+
+    private void InsertPreview(int pageIndex, int scaleKey, CanvasBitmap bitmap)
+    {
+        _stalePreviews.Remove(pageIndex);
+        if (_previews.TryGetValue(pageIndex, out var existing))
+        {
+            existing.Bitmap.Dispose();
+            _previewLru.Remove(pageIndex);
+        }
+
+        _previews[pageIndex] = (bitmap, scaleKey);
+        _previewLru.AddFirst(pageIndex);
+
+        while (_previewLru.Count > PreviewCacheCapacity && _previewLru.Last is { } oldest)
+        {
+            _previews[oldest.Value].Bitmap.Dispose();
+            _previews.Remove(oldest.Value);
+            _stalePreviews.Remove(oldest.Value);
+            _previewLru.RemoveLast();
+        }
+    }
+}

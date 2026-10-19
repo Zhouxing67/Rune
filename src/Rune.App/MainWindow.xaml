@@ -1,0 +1,602 @@
+<Window
+    x:Class="Rune.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Rune.Controls"
+    Title="Rune">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid
+        x:Name="RootGrid"
+        AllowDrop="True"
+        KeyboardAcceleratorPlacementMode="Hidden"
+        DragOver="RootGrid_DragOver"
+        Drop="RootGrid_Drop">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Chrome-style: the tab strip IS the title bar. Tabs carry no
+             content (documents render in DocHost below); the footer is the
+             window drag region, padded clear of the caption buttons. -->
+        <!-- CloseButtonOverlayMode is Always, not Auto: Auto reveals a background
+             tab's close button on hover, and a finger cannot hover, so closing
+             one meant selecting it first. -->
+        <TabView
+            x:Name="Tabs"
+            Grid.Row="0"
+            VerticalAlignment="Top"
+            TabWidthMode="Equal"
+            CloseButtonOverlayMode="Always"
+            SelectionChanged="Tabs_SelectionChanged"
+            AddTabButtonClick="Tabs_AddTabButtonClick"
+            TabCloseRequested="Tabs_TabCloseRequested">
+            <TabView.TabStripHeader>
+                <!-- The wordmark doubles as a Home button: it shows the recents
+                     screen without closing anything, and toggles back to the
+                     document you were reading. -->
+                <!-- MinHeight/MinWidth because the caption-sized wordmark alone
+                     gave it a target about 20px tall, and it is the only way
+                     back to the recents screen. -->
+                <Button
+                    x:Name="HomeButton"
+                    Click="HomeButton_Click"
+                    VerticalAlignment="Center"
+                    Margin="8,0,4,0"
+                    Padding="10,2"
+                    MinHeight="{StaticResource TouchTargetMin}"
+                    MinWidth="{StaticResource TouchTargetMin}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    AutomationProperties.Name="Home" ToolTipService.ToolTip="Home — recent documents">
+                    <TextBlock
+                        Text="Rune"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Button>
+            </TabView.TabStripHeader>
+            <TabView.TabStripFooter>
+                <Grid x:Name="TitleBarDragArea" Background="Transparent" MinWidth="188" />
+            </TabView.TabStripFooter>
+        </TabView>
+
+        <!-- Header bar (GNOME Papers proportions): one slim row of flat icon
+             buttons; everything else lives in the hamburger menu. -->
+        <Grid
+            x:Name="Toolbar"
+            Grid.Row="1"
+            Height="{StaticResource HeaderHeight}"
+            Padding="8,0"
+            ColumnSpacing="2">
+            <!-- Left group = view state (sidebar, page, fit, rotate);
+                 right group = actions (find, pen, night, menu). -->
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <ToggleButton
+                x:Name="SidebarButton"
+                Grid.Column="0"
+                Style="{StaticResource IconToggleButtonStyle}"
+                Click="SidebarButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Show sidebar" ToolTipService.ToolTip="Show sidebar (F9)">
+                <FontIcon Glyph="&#xE8A0;" FontSize="{StaticResource IconGlyphSize}" />
+            </ToggleButton>
+
+            <StackPanel
+                Grid.Column="1"
+                Orientation="Horizontal"
+                Spacing="6"
+                Margin="8,0,0,0"
+                VerticalAlignment="Center">
+                <NumberBox
+                    x:Name="PageBox"
+                    AutomationProperties.Name="Page number"
+                    Minimum="1"
+                    SpinButtonPlacementMode="Hidden"
+                    IsEnabled="False"
+                    MinWidth="52"
+                    VerticalAlignment="Center"
+                    ValueChanged="PageBox_ValueChanged" />
+                <TextBlock
+                    x:Name="PageCountLabel"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource CaptionTextBlockStyle}"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            </StackPanel>
+
+            <Border Grid.Column="2" Style="{StaticResource HeaderSeparatorStyle}" Margin="8,0,4,0" />
+
+            <ToggleButton
+                x:Name="FitWidthButton"
+                Grid.Column="3"
+                Style="{StaticResource IconToggleButtonStyle}"
+                Click="FitWidthButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Fit width" ToolTipService.ToolTip="Fit width (Ctrl+2)">
+                <FontIcon Glyph="&#xE9A6;" FontSize="{StaticResource IconGlyphSize}" />
+            </ToggleButton>
+            <ToggleButton
+                x:Name="FitPageButton"
+                Grid.Column="4"
+                Style="{StaticResource IconToggleButtonStyle}"
+                Click="FitPageButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Fit page" ToolTipService.ToolTip="Fit page (Ctrl+0)">
+                <FontIcon Glyph="&#xE9A6;" FontSize="{StaticResource IconGlyphSize}" RenderTransformOrigin="0.5,0.5">
+                    <FontIcon.RenderTransform>
+                        <RotateTransform Angle="90" />
+                    </FontIcon.RenderTransform>
+                </FontIcon>
+            </ToggleButton>
+            <Button
+                x:Name="RotateLeftButton"
+                Grid.Column="5"
+                Style="{StaticResource IconButtonStyle}"
+                Click="RotateLeftButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Rotate left" ToolTipService.ToolTip="Rotate left (Ctrl+Shift+R)">
+                <!-- Mirrored rotate-right glyph, so the pair always matches. -->
+                <FontIcon Glyph="&#xE7AD;" FontSize="{StaticResource IconGlyphSize}" RenderTransformOrigin="0.5,0.5">
+                    <FontIcon.RenderTransform>
+                        <ScaleTransform ScaleX="-1" />
+                    </FontIcon.RenderTransform>
+                </FontIcon>
+            </Button>
+            <Button
+                x:Name="RotateRightButton"
+                Grid.Column="6"
+                Style="{StaticResource IconButtonStyle}"
+                Click="RotateButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Rotate right" ToolTipService.ToolTip="Rotate right (Ctrl+R)">
+                <FontIcon Glyph="&#xE7AD;" FontSize="{StaticResource IconGlyphSize}" />
+            </Button>
+
+            <!-- Annotation tools, centred in the toolbar's empty middle column
+                 (Snipping Tool's arrangement). Exactly one is armed at a time;
+                 clicking one opens its options directly beneath it. -->
+            <!-- Spans every column rather than sitting in the empty middle one:
+                 the left group is much wider than the right, so centring within
+                 the gap would leave the cluster visibly off-centre in the
+                 window. Overlaying and centring across the whole row puts it
+                 where the eye expects. -->
+            <StackPanel
+                Grid.Column="0"
+                Grid.ColumnSpan="12"
+                Orientation="Horizontal"
+                Spacing="2"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+                <ToggleButton
+                    x:Name="PenToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="PenToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Pen" ToolTipService.ToolTip="Pen — draw freehand (Ctrl+E)">
+                    <FontIcon Glyph="&#xE70F;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="HighlighterToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="HighlighterToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Highlighter" ToolTipService.ToolTip="Highlighter — drag over text (Ctrl+H)">
+                    <FontIcon Glyph="&#xE891;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="NoteToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="NoteToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Sticky note" ToolTipService.ToolTip="Note — click to add a sticky note">
+                    <FontIcon Glyph="&#xE70B;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="TextToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="TextToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Text" ToolTipService.ToolTip="Text — click anywhere on the page and type (Ctrl+T)">
+                    <FontIcon Glyph="&#xE8D2;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="ImageToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="ImageToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Picture" ToolTipService.ToolTip="Picture — place an image on the page (Ctrl+wheel resizes it)">
+                    <FontIcon Glyph="&#xEB9F;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="SignToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="SignToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Sign" ToolTipService.ToolTip="Sign — place your signature">
+                    <FontIcon Glyph="&#xEE56;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+                <ToggleButton
+                    x:Name="EraserToolButton"
+                    Style="{StaticResource IconToggleButtonStyle}"
+                    Click="EraserToolButton_Click"
+                    IsEnabled="False"
+                    AutomationProperties.Name="Eraser" ToolTipService.ToolTip="Eraser — click an annotation to remove it">
+                    <FontIcon Glyph="&#xE75C;" FontSize="{StaticResource IconGlyphSize}" />
+                </ToggleButton>
+            </StackPanel>
+
+            <Button
+                x:Name="FindButton"
+                Grid.Column="8"
+                Style="{StaticResource IconButtonStyle}"
+                Click="FindButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Find in document" ToolTipService.ToolTip="Find in document (Ctrl+F)">
+                <FontIcon Glyph="&#xE721;" FontSize="{StaticResource IconGlyphSize}" />
+            </Button>
+            <ToggleButton
+                x:Name="NightButton"
+                Grid.Column="10"
+                Style="{StaticResource IconToggleButtonStyle}"
+                Click="NightButton_Click"
+                IsEnabled="False"
+                AutomationProperties.Name="Night mode" ToolTipService.ToolTip="Night mode — invert page colors (Ctrl+I)">
+                <FontIcon Glyph="&#xE708;" FontSize="{StaticResource IconGlyphSize}" />
+            </ToggleButton>
+            <Button
+                x:Name="MenuButton"
+                Grid.Column="11"
+                Style="{StaticResource IconButtonStyle}"
+                AutomationProperties.Name="Menu" ToolTipService.ToolTip="Menu">
+                <FontIcon Glyph="&#xE700;" FontSize="{StaticResource IconGlyphSize}" />
+                <Button.Flyout>
+                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open…" Click="OpenButton_Click" KeyboardAcceleratorTextOverride="Ctrl+O">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8E5;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="UndoMenuItem" Text="Undo" Click="UndoMenuItem_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+Z">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE7A7;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="RedoMenuItem" Text="Redo" Click="RedoMenuItem_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+Y">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE7A6;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="SaveMenuItem" Text="Save" Click="SaveButton_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+S">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE74E;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="SaveAsMenuItem" Text="Save as…" Click="SaveAsButton_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+Shift+S">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE792;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="PrintMenuItem" Text="Print…" Click="PrintButton_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+P">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE749;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="ShareMenuItem" Text="Share…" Click="ShareMenuItem_Click" IsEnabled="False">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE72D;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="FlattenMenuItem" Text="Flatten annotations…" Click="FlattenMenuItem_Click" IsEnabled="False">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE7C4;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="PresentMenuItem" Text="Presentation" Click="PresentMenuItem_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="F5">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE7F4;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <!-- Bookmarking and the palette were chords and nothing
+                             else, and the empty bookmarks pane told the user to
+                             press one. A tablet has no chords. -->
+                        <MenuFlyoutItem x:Name="BookmarkMenuItem" Text="Bookmark this page" Click="BookmarkMenuItem_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+B">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE718;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="PaletteMenuItem" Text="Find a command…" Click="PaletteMenuItem_Click" KeyboardAcceleratorTextOverride="Ctrl+K">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE721;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <MenuFlyoutItem x:Name="SignaturesMenuItem" Text="Signature details…" Click="SignaturesMenuItem_Click" IsEnabled="False">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE8A5;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="PropertiesMenuItem" Text="Document properties" Click="PropertiesButton_Click" IsEnabled="False" KeyboardAcceleratorTextOverride="Ctrl+D">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE946;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="ShortcutsMenuItem" Text="Keyboard shortcuts" Click="ShortcutsMenuItem_Click" KeyboardAcceleratorTextOverride="F1">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE765;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutItem x:Name="SettingsMenuItem" Text="Settings" Click="SettingsButton_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE713;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                        <MenuFlyoutSeparator />
+                        <!-- Rune collects nothing and phones nowhere, so a bug
+                             only reaches the developer if the user sends it. -->
+                        <MenuFlyoutItem x:Name="ReportProblemMenuItem" Text="Report a problem…" Click="ReportProblemMenuItem_Click">
+                            <MenuFlyoutItem.Icon>
+                                <FontIcon Glyph="&#xE939;" />
+                            </MenuFlyoutItem.Icon>
+                        </MenuFlyoutItem>
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+        </Grid>
+
+        <Grid Grid.Row="2">
+            <!-- The selected tab's DocumentView is swapped in here. -->
+            <ContentControl
+                x:Name="DocHost"
+                HorizontalContentAlignment="Stretch"
+                VerticalContentAlignment="Stretch" />
+
+            <!-- Start page: recent documents grid (GNOME Papers recent view) -->
+            <Grid x:Name="StartPage" Padding="32,24,32,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" MaxWidth="936" Margin="0,0,0,16">
+                    <TextBlock
+                        x:Name="RecentsHeader"
+                        Text="Recent documents"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource SubtitleTextBlockStyle}" />
+                    <Button
+                        HorizontalAlignment="Right"
+                        Click="OpenButton_Click"
+                        Style="{StaticResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8E5;" FontSize="14" />
+                            <TextBlock Text="Open a PDF" />
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" HorizontalScrollMode="Disabled">
+                    <GridView
+                        x:Name="RecentThumbs"
+                        MaxWidth="936"
+                        Margin="0,0,0,24"
+                        SelectionMode="None"
+                        IsItemClickEnabled="True"
+                        ItemClick="RecentThumbs_ItemClick">
+                        <GridView.ItemTemplate>
+                            <DataTemplate x:DataType="controls:RecentCard">
+                                <StackPanel Width="168" Margin="0,0,8,8" Spacing="6" RightTapped="RecentCard_RightTapped">
+                                    <Grid Width="168" Height="212" Style="{StaticResource CardSurfaceStyle}">
+                                        <FontIcon
+                                            Glyph="&#xEA90;"
+                                            FontSize="32"
+                                            Foreground="{ThemeResource TextFillColorDisabledBrush}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Visibility="{x:Bind ShowPlaceholder, Mode=OneWay}" />
+                                        <!-- Bordered box sized to the page's own aspect ratio: a
+                                             white page on a light card has no visible edge without it. -->
+                                        <Border
+                                            Width="{x:Bind ImageWidth, Mode=OneWay}"
+                                            Height="{x:Bind ImageHeight, Mode=OneWay}"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            BorderThickness="1"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            Visibility="{x:Bind HasThumbnail, Mode=OneWay}">
+                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="Fill" />
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock Text="{x:Bind DisplayName}" MaxWidth="168" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                    <TextBlock Text="{x:Bind Folder}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" MaxWidth="168" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,-4,0,0" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </GridView.ItemTemplate>
+                    </GridView>
+                </ScrollViewer>
+
+                <!-- Shown instead of the grid when there is nothing recent. -->
+                <StackPanel
+                    x:Name="EmptyState"
+                    Grid.Row="1"
+                    Spacing="8"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Visibility="Collapsed">
+                    <FontIcon Glyph="&#xEA90;" FontSize="48" Foreground="{ThemeResource TextFillColorDisabledBrush}" HorizontalAlignment="Center" />
+                    <TextBlock
+                        Text="No recent documents"
+                        Style="{StaticResource BodyStrongTextBlockStyle}"
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock
+                        Text="Open a PDF to get started"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Window-level notices: messages that arrive with no document to
+                 attach them to (startup problems, a missing recent file, a
+                 background failure). Anything about an open document goes to
+                 that DocumentView's own NoticeHost instead, which is bounded to
+                 the page area so it can't cover the sidebar.
+
+                 Declared before the zoom pill and find bar so active UI always
+                 paints over a passive notice, never the other way round. -->
+            <controls:NoticeHost x:Name="WindowNotice" />
+
+            <!-- The format bar for the text box being typed into. It floats at
+                 the top of the page area, out of the way of a caret that is
+                 usually further down, and only exists while a box is open.
+                 Its controls are built in code so the font and size lists come
+                 from one place (TextBoxFonts) rather than being duplicated in
+                 markup that could drift from it. -->
+            <Border
+                x:Name="TextFormatBar"
+                Style="{StaticResource OverlayPillStyle}"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,16,0,0"
+                Height="44"
+                Padding="8,0">
+                <StackPanel
+                    x:Name="TextFormatControls"
+                    Orientation="Horizontal"
+                    Spacing="6"
+                    VerticalAlignment="Center" />
+            </Border>
+
+            <!-- Floating zoom pill (Papers-style, bottom-right over the page) -->
+            <Border
+                x:Name="ZoomPill"
+                Style="{StaticResource OverlayPillStyle}"
+                Visibility="Collapsed"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Bottom"
+                Margin="0,0,24,24"
+                Height="48"
+                Padding="4,0">
+                <StackPanel Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                    <Button
+                        x:Name="ZoomOutButton"
+                        Style="{StaticResource PillButtonStyle}"
+                        Click="ZoomOutButton_Click"
+                        IsEnabled="False"
+                        AutomationProperties.Name="Zoom out" ToolTipService.ToolTip="Zoom out (Ctrl+-)">
+                        <FontIcon Glyph="&#xE738;" FontSize="14" />
+                    </Button>
+                    <Button
+                        x:Name="ZoomLabelButton"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Height="{StaticResource TouchTargetMin}"
+                        MinWidth="56"
+                        Padding="6,0"
+                        CornerRadius="20"
+                        IsEnabled="False"
+                        AutomationProperties.Name="Zoom level" ToolTipService.ToolTip="Zoom level">
+                        <TextBlock x:Name="ZoomLabel" Text="100%" Style="{StaticResource CaptionTextBlockStyle}" />
+                        <Button.Flyout>
+                            <MenuFlyout Placement="Top">
+                                <MenuFlyoutItem Text="50%" Click="ZoomPreset_Click" Tag="0.5" />
+                                <MenuFlyoutItem Text="100%" Click="ZoomPreset_Click" Tag="1.0" KeyboardAcceleratorTextOverride="Ctrl+1" />
+                                <MenuFlyoutItem Text="150%" Click="ZoomPreset_Click" Tag="1.5" />
+                                <MenuFlyoutItem Text="200%" Click="ZoomPreset_Click" Tag="2.0" />
+                                <MenuFlyoutSeparator />
+                                <ToggleMenuFlyoutItem x:Name="FitWidthItem" Text="Fit width" Click="FitWidthButton_Click" KeyboardAcceleratorTextOverride="Ctrl+2" />
+                                <ToggleMenuFlyoutItem x:Name="FitPageItem" Text="Fit page" Click="FitPageButton_Click" KeyboardAcceleratorTextOverride="Ctrl+0" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+                    <Button
+                        x:Name="ZoomInButton"
+                        Style="{StaticResource PillButtonStyle}"
+                        Click="ZoomInButton_Click"
+                        IsEnabled="False"
+                        AutomationProperties.Name="Zoom in" ToolTipService.ToolTip="Zoom in (Ctrl++)">
+                        <FontIcon Glyph="&#xE710;" FontSize="14" />
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- Find bar -->
+            <Border
+                x:Name="FindBar"
+                Visibility="Collapsed"
+                VerticalAlignment="Top"
+                HorizontalAlignment="Right"
+                Margin="0,8,16,0"
+                Padding="6"
+                Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8">
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <TextBox
+                        x:Name="FindBox"
+                        Width="220"
+                        PlaceholderText="Find in document"
+                        TextChanged="FindBox_TextChanged"
+                        KeyDown="FindBox_KeyDown" />
+                    <TextBlock
+                        x:Name="FindCount"
+                        VerticalAlignment="Center"
+                        MinWidth="64"
+                        Margin="4,0"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <!-- These four were the smallest targets in the app, about
+                         28x26 from padding alone. Squared off to the touch
+                         minimum; the glyphs are unchanged. -->
+                    <ToggleButton x:Name="MatchCaseButton" Click="MatchCase_Click" AutomationProperties.Name="Match case" ToolTipService.ToolTip="Match case"
+                                  Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                        <TextBlock Text="Aa" FontSize="13" />
+                    </ToggleButton>
+                    <Button x:Name="FindPrev" Click="FindPrev_Click" AutomationProperties.Name="Previous match" ToolTipService.ToolTip="Previous (Shift+Enter)"
+                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                        <FontIcon Glyph="&#xE70E;" FontSize="12" />
+                    </Button>
+                    <Button x:Name="FindNext" Click="FindNext_Click" AutomationProperties.Name="Next match" ToolTipService.ToolTip="Next (Enter)"
+                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                        <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                    </Button>
+                    <Button x:Name="FindClose" Click="FindClose_Click" AutomationProperties.Name="Close find bar" ToolTipService.ToolTip="Close (Esc)"
+                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                        <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <controls:CommandPalette x:Name="Palette" />
+        </Grid>
+
+        <!-- Fullscreen presentation overlay: covers ALL rows (tabs included). -->
+        <controls:PresentationView
+            x:Name="Presentation"
+            Grid.Row="0"
+            Grid.RowSpan="3" />
+    </Grid>
+</Window>
