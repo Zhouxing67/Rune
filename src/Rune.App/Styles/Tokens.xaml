@@ -93,5 +93,5 @@
     <x:Double x:Key="NoteMarkerVisualSize">14</x:Double>
     <x:Double x:Key="NoteMarkerHitSize">28</x:Double>
     <x:Double x:Key="NoteCardWidth">320</x:Double>
-    <x:Double x:Key="CitationCardWidth">360</x:Double>
+    <x:Double x:Key="CitationCardWidth">372</x:Double>
 </ResourceDictionary>

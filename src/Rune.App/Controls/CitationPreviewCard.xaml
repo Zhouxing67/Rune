@@ -3,36 +3,65 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="{StaticResource CitationCardWidth}">
-    <Border Style="{StaticResource OverlayCardSurfaceStyle}">
-        <Grid RowSpacing="8">
+    <Border Style="{StaticResource OverlayCardSurfaceStyle}" Padding="0">
+        <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid>
+
+            <Grid MinHeight="42" Padding="14,6,6,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
                 <TextBlock Text="Reference" Style="{StaticResource BodyStrongTextBlockStyle}"
-                           VerticalAlignment="Center" />
-                <Button HorizontalAlignment="Right" Style="{StaticResource IconButtonStyle}"
+                           VerticalAlignment="Center" FontSize="14" />
+                <Border Grid.Column="1" Margin="8,0,0,0" Padding="7,2"
+                        VerticalAlignment="Center" CornerRadius="8"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                    <TextBlock x:Name="PageLabel" FontSize="11"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </Border>
+                <Button Grid.Column="3" HorizontalAlignment="Right"
+                        Style="{StaticResource IconButtonStyle}" Width="30" Height="30"
                         Click="Close_Click" AutomationProperties.Name="Close reference preview"
                         ToolTipService.ToolTip="Close">
                     <FontIcon Glyph="&#xE711;" FontSize="12" />
                 </Button>
             </Grid>
 
-            <ScrollViewer Grid.Row="1" MaxHeight="168" VerticalScrollBarVisibility="Auto">
-                <TextBlock x:Name="ReferenceText" TextWrapping="WrapWholeWords"
-                           IsTextSelectionEnabled="True" FontSize="13" LineHeight="18" />
-            </ScrollViewer>
+            <Border Grid.Row="1" Margin="12,0" Padding="12,10"
+                    CornerRadius="{StaticResource RadiusSmall}"
+                    Background="{ThemeResource SubtleFillColorTertiaryBrush}">
+                <ScrollViewer MaxHeight="164" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="ReferenceText" TextWrapping="WrapWholeWords"
+                               IsTextSelectionEnabled="True" FontSize="13" LineHeight="19"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+                </ScrollViewer>
+            </Border>
 
-            <Grid Grid.Row="2">
-                <TextBlock x:Name="PageLabel" VerticalAlignment="Center" FontSize="12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="6">
-                    <Button x:Name="OpenLinkButton" Content="Open" Click="OpenLink_Click"
-                            Visibility="Collapsed" MinHeight="32" Padding="10,4" />
-                    <Button Content="Go to" Style="{StaticResource AccentButtonStyle}"
-                            Click="GoTo_Click" MinHeight="32" Padding="10,4" />
+            <Grid Grid.Row="2" MinHeight="42" Padding="8,4">
+                <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="OpenLinkButton" Click="OpenLink_Click"
+                            Visibility="Collapsed" MinHeight="30" Padding="9,4"
+                            Background="Transparent" BorderThickness="0">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon Glyph="&#xE8A7;" FontSize="13" />
+                            <TextBlock Text="Open link" FontSize="12" />
+                        </StackPanel>
+                    </Button>
+                    <Button Click="GoTo_Click" MinHeight="30" Padding="9,4"
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="Go to reference" FontSize="12" />
+                            <FontIcon Glyph="&#xE72A;" FontSize="12" />
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Grid>
