@@ -24,6 +24,7 @@ public sealed partial class DocumentView : UserControl
     private PdfDocument? _document;
     private bool _loaded;
     private bool _syncingSelection;
+    private List<OutlineNode> _outlineNodes = [];
 
     public string FilePath { get; }
     public string DisplayName => Path.GetFileName(FilePath);
@@ -44,7 +45,11 @@ public sealed partial class DocumentView : UserControl
         ThumbList.ItemsSource = _thumbnails;
         BookmarkList.ItemsSource = _bookmarks;
 
-        ViewerControl.CurrentPageChanged += (_, page) => SyncThumbnailSelection(page);
+        ViewerControl.CurrentPageChanged += (_, page) =>
+        {
+            SyncThumbnailSelection(page);
+            SyncOutlineSelection(page);
+        };
         ViewerControl.RotationChanged += (_, rotation) => OnViewRotated(rotation);
         ViewerControl.NightModeChanged += (_, _) => OnNightModeChanged();
         ViewerControl.AnnotationEdited += (_, e) => PushEdit(new DocumentEdit
@@ -435,9 +440,34 @@ public sealed partial class DocumentView : UserControl
         // OutlineNode, and its TreeViewItem.ItemsSource="{x:Bind Children}"
         // supplies the hierarchy. (Populating RootNodes with TreeViewNode
         // wrappers instead crashes template realization with a type mismatch.)
-        var nodes = outline.Select(item => new OutlineNode(item)).ToList();
-        _hasOutline = nodes.Count > 0;
-        OutlineTree.ItemsSource = nodes;
+        _outlineNodes = outline.Select(item => new OutlineNode(item)).ToList();
+        _hasOutline = _outlineNodes.Count > 0;
+        OutlineTree.ItemsSource = _outlineNodes;
+        SyncOutlineSelection(Viewer.CurrentPage);
+    }
+
+    private void SyncOutlineSelection(int pageIndex)
+    {
+        OutlineNode? current = FlattenOutline(_outlineNodes)
+            .Where(n => n.PageIndex >= 0 && n.PageIndex <= pageIndex)
+            .OrderByDescending(n => n.PageIndex)
+            .FirstOrDefault();
+        foreach (var node in FlattenOutline(_outlineNodes))
+        {
+            node.IsCurrent = ReferenceEquals(node, current);
+        }
+    }
+
+    private static IEnumerable<OutlineNode> FlattenOutline(IEnumerable<OutlineNode> roots)
+    {
+        foreach (var node in roots)
+        {
+            yield return node;
+            foreach (var child in FlattenOutline(node.Children))
+            {
+                yield return child;
+            }
+        }
     }
 
     private void OutlineTree_ItemInvoked(TreeView sender, TreeViewItemInvokedEventArgs args)

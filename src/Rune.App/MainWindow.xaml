@@ -243,15 +243,23 @@
                 </ToggleButton>
             </StackPanel>
 
-            <Button
-                x:Name="FindButton"
-                Grid.Column="8"
-                Style="{StaticResource IconButtonStyle}"
-                Click="FindButton_Click"
-                IsEnabled="False"
-                AutomationProperties.Name="Find in document" ToolTipService.ToolTip="Find in document (Ctrl+F)">
-                <FontIcon Glyph="&#xE721;" FontSize="{StaticResource IconGlyphSize}" />
-            </Button>
+            <StackPanel Grid.Column="8" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="2">
+                <Button x:Name="HistoryBackButton" Style="{StaticResource IconButtonStyle}"
+                        Click="HistoryBackButton_Click" IsEnabled="False"
+                        AutomationProperties.Name="Back" ToolTipService.ToolTip="Back (Alt+Left)">
+                    <FontIcon Glyph="&#xE72B;" FontSize="{StaticResource IconGlyphSize}" />
+                </Button>
+                <Button x:Name="HistoryForwardButton" Style="{StaticResource IconButtonStyle}"
+                        Click="HistoryForwardButton_Click" IsEnabled="False"
+                        AutomationProperties.Name="Forward" ToolTipService.ToolTip="Forward (Alt+Right)">
+                    <FontIcon Glyph="&#xE72A;" FontSize="{StaticResource IconGlyphSize}" />
+                </Button>
+                <Button x:Name="FindButton" Style="{StaticResource IconButtonStyle}"
+                        Click="FindButton_Click" IsEnabled="False"
+                        AutomationProperties.Name="Find in document" ToolTipService.ToolTip="Find in document (Ctrl+F)">
+                    <FontIcon Glyph="&#xE721;" FontSize="{StaticResource IconGlyphSize}" />
+                </Button>
+            </StackPanel>
             <ToggleButton
                 x:Name="NightButton"
                 Grid.Column="10"
@@ -554,10 +562,15 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="8">
+                <Grid Width="{StaticResource SearchResultPanelWidth}" MaxHeight="520">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                 <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <TextBox
                         x:Name="FindBox"
-                        Width="220"
+                        Width="152"
                         PlaceholderText="Find in document"
                         TextChanged="FindBox_TextChanged"
                         KeyDown="FindBox_KeyDown" />
@@ -588,6 +601,26 @@
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
                 </StackPanel>
+                    <ListView x:Name="FindResultsList" Grid.Row="1" Margin="0,6,0,0" MaxHeight="400"
+                              IsItemClickEnabled="True" ItemClick="FindResultsList_ItemClick"
+                              SelectionMode="Single" ItemContainerStyle="{StaticResource SearchResultItemStyle}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="controls:SearchResultItem">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{x:Bind Snippet}" TextWrapping="WrapWholeWords" MaxLines="2"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind PageLabel}"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
             </Border>
 
             <controls:CommandPalette x:Name="Palette" />

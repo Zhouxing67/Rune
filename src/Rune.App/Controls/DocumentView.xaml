@@ -80,14 +80,28 @@
                     Grid.Row="0"
                     Visibility="Collapsed"
                     SelectionMode="Single"
-                    Padding="0,8"
+                    Padding="4,8"
                     ItemInvoked="OutlineTree_ItemInvoked">
                     <TreeView.ItemTemplate>
                         <DataTemplate x:DataType="controls:OutlineNode">
                             <TreeViewItem
                                 ItemsSource="{x:Bind Children}"
+                                Style="{StaticResource OutlineItemStyle}"
                                 IsExpanded="False">
-                                <TextBlock Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                <Grid MinWidth="250">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="3" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="{StaticResource OutlinePageWidth}" />
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="3" Height="22" CornerRadius="2"
+                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                            Visibility="{x:Bind IsCurrent, Mode=OneWay}" />
+                                    <TextBlock Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center"
+                                               Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                               Text="{x:Bind PageLabel}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                </Grid>
                             </TreeViewItem>
                         </DataTemplate>
                     </TreeView.ItemTemplate>

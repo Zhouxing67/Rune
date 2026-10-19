@@ -226,8 +226,9 @@ public sealed partial class PdfDocument
                         Math.Max(1, (int)MathF.Round(ptW)), Math.Max(1, (int)MathF.Round(ptH)),
                         (int)Math.Round(x), (int)Math.Round(y));
 
-                    // Standard note icon size ~20pt, anchored at the click point.
-                    const float size = 20f;
+                    // Compact Fluent-style marker. The viewer keeps a larger
+                    // hit target, so the smaller visual does not cost usability.
+                    const float size = 14f;
                     PdfiumNative.SetAnnotRect(annot, (float)px, (float)py - size, (float)px + size, (float)py);
                     PdfiumNative.SetAnnotString(annot, "Contents", text);
                     PdfiumNative.SetAnnotColor(annot, 255, 200, 0, 255);
@@ -303,6 +304,28 @@ public sealed partial class PdfDocument
             }
         }
         return result;
+    }
+
+    /// <summary>Updates the interoperable /Contents of an existing annotation.</summary>
+    public void SetAnnotationContents(int pageIndex, int annotationIndex, string contents)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(pageIndex);
+        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(pageIndex, PageCount);
+        lock (PdfiumLibrary.Lock)
+        {
+            ObjectDisposedException.ThrowIf(_handle == IntPtr.Zero, this);
+            IntPtr page = AcquirePageLocked(pageIndex);
+            if (page == IntPtr.Zero) throw PdfiumNative.LastError();
+            try
+            {
+                IntPtr annot = PdfiumNative.GetAnnot(page, annotationIndex);
+                if (annot == IntPtr.Zero) throw new PdfiumException("Could not open the annotation.", 1);
+                try { PdfiumNative.SetAnnotString(annot, "Contents", contents); }
+                finally { PdfiumNative.CloseAnnot(annot); }
+            }
+            finally { ReleasePageLocked(pageIndex); }
+        }
+        IsDirty = true;
     }
 
     public bool RemoveAnnotation(int pageIndex, int annotIndex)

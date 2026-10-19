@@ -56,6 +56,26 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusPill}" />
     </Style>
 
+    <Style x:Key="OverlayIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Width" Value="{StaticResource OverlayButtonSize}" />
+        <Setter Property="Height" Value="{StaticResource OverlayButtonSize}" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+    </Style>
+
+    <Style x:Key="OutlineItemStyle" TargetType="TreeViewItem">
+        <Setter Property="MinHeight" Value="{StaticResource OutlineRowHeight}" />
+        <Setter Property="Padding" Value="4,0,8,0" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+
+    <Style x:Key="SearchResultItemStyle" TargetType="ListViewItem">
+        <Setter Property="Padding" Value="10,8" />
+        <Setter Property="Margin" Value="4,1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    </Style>
+
     <!-- Pen colour swatch: a filled circle. WinUI clamps corner radius to half
          the smaller side, so 16 is a circle at 32 px. -->
     <Style x:Key="InkSwatchButtonStyle" TargetType="Button">

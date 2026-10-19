@@ -573,6 +573,8 @@ public sealed partial class MainWindow : Window
             _activeViewer.CurrentPageChanged -= Viewer_CurrentPageChanged;
             _activeViewer.ZoomChanged -= Viewer_ZoomChanged;
             _activeViewer.InkStrokeStarted -= Viewer_InkStrokeStarted;
+            _activeViewer.HistoryChanged -= Viewer_HistoryChanged;
+            _activeViewer.SearchHitInvoked -= Viewer_SearchHitInvoked;
         }
 
         _activeViewer = CurrentView?.Viewer;
@@ -582,7 +584,10 @@ public sealed partial class MainWindow : Window
             _activeViewer.CurrentPageChanged += Viewer_CurrentPageChanged;
             _activeViewer.ZoomChanged += Viewer_ZoomChanged;
             _activeViewer.InkStrokeStarted += Viewer_InkStrokeStarted;
+            _activeViewer.HistoryChanged += Viewer_HistoryChanged;
+            _activeViewer.SearchHitInvoked += Viewer_SearchHitInvoked;
         }
+        UpdateHistoryButtons();
 
         if (CurrentView is { } view)
         {
@@ -612,6 +617,27 @@ public sealed partial class MainWindow : Window
         ZoomLabel.Text = $"{Math.Round(zoom * 100)}%";
         UpdateFitToggles();
     }
+
+    private void Viewer_HistoryChanged(object? sender, EventArgs e) => UpdateHistoryButtons();
+
+    private void Viewer_SearchHitInvoked(object? sender, SearchHit hit)
+    {
+        int index = _searchHits.FindIndex(h => h == hit);
+        if (index < 0) return;
+        _activeHitIndex = index;
+        FindResultsList.SelectedIndex = index;
+        FindResultsList.ScrollIntoView(FindResultsList.SelectedItem);
+        UpdateFindCount();
+    }
+
+    private void UpdateHistoryButtons()
+    {
+        HistoryBackButton.IsEnabled = _activeViewer?.CanGoBack == true;
+        HistoryForwardButton.IsEnabled = _activeViewer?.CanGoForward == true;
+    }
+
+    private void HistoryBackButton_Click(object sender, RoutedEventArgs e) => _activeViewer?.GoBack();
+    private void HistoryForwardButton_Click(object sender, RoutedEventArgs e) => _activeViewer?.GoForward();
 
     private void UpdateToolbarForActive()
     {
@@ -2208,6 +2234,7 @@ public sealed partial class MainWindow : Window
         _searchCts?.Cancel();
         _activeViewer?.ClearSearch();
         _searchHits = [];
+        FindResultsList.ItemsSource = null;
         _activeHitIndex = -1;
         FindCount.Text = "";
     }
@@ -2242,6 +2269,8 @@ public sealed partial class MainWindow : Window
         viewer?.ClearSearch();
         var collected = new List<SearchHit>();
         _searchHits = collected;
+        var resultItems = new List<SearchResultItem>();
+        FindResultsList.ItemsSource = resultItems;
         _activeHitIndex = -1;
         FindCount.Text = "";
 
@@ -2268,6 +2297,7 @@ public sealed partial class MainWindow : Window
                     }
                     collected.AddRange(hits);
                     viewer.SetSearchResults(collected);
+                    _ = AppendSearchResultsAsync(viewer, hits, query, resultItems, cts);
                     if (_activeHitIndex < 0 && collected.Count > 0)
                     {
                         _activeHitIndex = 0;
@@ -2292,6 +2322,37 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private async Task AppendSearchResultsAsync(PdfViewer viewer, IReadOnlyList<SearchHit> hits,
+        string query, List<SearchResultItem> items, CancellationTokenSource cts)
+    {
+        foreach (var hit in hits)
+        {
+            string snippet;
+            try { snippet = await viewer.GetSearchSnippetAsync(hit, query); }
+            catch { snippet = query; }
+            if (_searchCts != cts) return;
+            items.Add(new SearchResultItem(hit, snippet));
+        }
+        if (_searchCts == cts)
+        {
+            // List<T> is not observable; rebinding in page-sized batches keeps
+            // incremental search cheap even for hundreds of pages.
+            FindResultsList.ItemsSource = null;
+            FindResultsList.ItemsSource = items;
+            FindResultsList.SelectedIndex = _activeHitIndex;
+        }
+    }
+
+    private void FindResultsList_ItemClick(object sender, ItemClickEventArgs e)
+    {
+        if (e.ClickedItem is not SearchResultItem item) return;
+        int index = _searchHits.FindIndex(h => h == item.Hit);
+        if (index < 0) return;
+        _activeHitIndex = index;
+        _activeViewer?.HighlightHit(item.Hit);
+        UpdateFindCount();
+    }
+
     private void StepHit(int delta)
     {
         int n = _searchHits.Count;
@@ -2301,6 +2362,8 @@ public sealed partial class MainWindow : Window
         }
         _activeHitIndex = ((_activeHitIndex + delta) % n + n) % n;
         _activeViewer?.HighlightHit(_searchHits[_activeHitIndex]);
+        FindResultsList.SelectedIndex = _activeHitIndex;
+        FindResultsList.ScrollIntoView(FindResultsList.SelectedItem);
         UpdateFindCount();
     }
 

@@ -2,6 +2,7 @@
     x:Class="Rune.Controls.PdfViewer"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Rune.Controls"
     xmlns:win2d="using:Microsoft.Graphics.Canvas.UI.Xaml">
 
     <!-- ZoomMode carries pinch only; Ctrl+wheel is handled in code-behind so it
@@ -64,5 +65,26 @@
             LostFocus="TextEditor_LostFocus"
             KeyDown="TextEditor_KeyDown"
             SizeChanged="TextEditor_SizeChanged" />
+
+        <controls:SelectionToolbar
+            x:Name="SelectionActions"
+            Visibility="Collapsed"
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            ActionRequested="SelectionActions_ActionRequested" />
+
+        <controls:SearchOverview
+            x:Name="SearchStrip"
+            Visibility="Collapsed"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Stretch"
+            Margin="0,6,14,6"
+            HitInvoked="SearchStrip_HitInvoked" />
+
+        <controls:NoteCard x:Name="NotePopup" Visibility="Collapsed"
+                           HorizontalAlignment="Left" VerticalAlignment="Top"
+                           SaveRequested="NotePopup_SaveRequested"
+                           DeleteRequested="NotePopup_DeleteRequested"
+                           CloseRequested="NotePopup_CloseRequested" />
     </Grid>
 </UserControl>

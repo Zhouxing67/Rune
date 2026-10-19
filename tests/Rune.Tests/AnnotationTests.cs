@@ -67,6 +67,34 @@ public class AnnotationTests
     }
 
     [Fact]
+    public void SetAnnotationContents_PreservesStandardNoteAndSavesText()
+    {
+        string saved = TempPdf();
+        try
+        {
+            using (var doc = PdfDocument.Open(CorpusPath("hello.pdf")))
+            {
+                doc.AddNote(0, 300, 400, "draft");
+                var before = Assert.Single(doc.GetAnnotations(0));
+                doc.SetAnnotationContents(0, before.Index, "edited note");
+                var after = Assert.Single(doc.GetAnnotations(0));
+                Assert.True(after.IsNote);
+                Assert.Equal("edited note", after.Contents);
+                Assert.Equal((before.X, before.Y, before.Width, before.Height),
+                    (after.X, after.Y, after.Width, after.Height));
+                doc.SaveAs(saved);
+            }
+
+            using var reopened = PdfDocument.Open(saved);
+            Assert.Equal("edited note", Assert.Single(reopened.GetAnnotations(0)).Contents);
+        }
+        finally
+        {
+            File.Delete(saved);
+        }
+    }
+
+    [Fact]
     public void RemoveAnnotation_Works()
     {
         string saved = TempPdf();

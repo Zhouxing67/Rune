@@ -12,9 +12,11 @@
     <x:Double x:Key="SpaceXL">24</x:Double>
 
     <!-- Header bar (Papers headerbar is 47px @1x; 44 reads right on Fluent) -->
-    <x:Double x:Key="HeaderHeight">44</x:Double>
-    <x:Double x:Key="IconButtonSize">34</x:Double>
-    <x:Double x:Key="IconGlyphSize">16</x:Double>
+    <x:Double x:Key="HeaderHeight">48</x:Double>
+    <x:Double x:Key="IconButtonSize">38</x:Double>
+    <x:Double x:Key="IconGlyphSize">18</x:Double>
+    <x:Double x:Key="ToolbarSearchWidth">300</x:Double>
+    <x:Double x:Key="ToolbarGroupGap">8</x:Double>
 
     <!-- Fluent's minimum comfortable touch target. The 34px header buttons are
          deliberately left below it: they sit in a 44px bar with 2px gaps, so a
@@ -44,8 +46,21 @@
 
     <!-- Sidebar. Thumbnail boxes take their height from each page's own aspect
          ratio; the clamps keep a poster (1:10) or a banner (10:1) usable. -->
-    <x:Double x:Key="SidebarWidth">280</x:Double>
+    <x:Double x:Key="SidebarWidth">360</x:Double>
+    <x:Double x:Key="OutlineRowHeight">42</x:Double>
+    <x:Double x:Key="OutlinePageWidth">48</x:Double>
+    <x:Double x:Key="OutlineIndent">20</x:Double>
     <x:Double x:Key="SidebarThumbWidth">168</x:Double>
     <x:Double x:Key="SidebarThumbMinHeight">96</x:Double>
     <x:Double x:Key="SidebarThumbMaxHeight">320</x:Double>
+
+    <!-- Selection/search/note overlays. Kept here so their proportions stay
+         consistent in both themes and at every call site. -->
+    <x:Double x:Key="OverlayButtonSize">36</x:Double>
+    <x:Double x:Key="SelectionToolbarHeight">44</x:Double>
+    <x:Double x:Key="SearchOverviewWidth">18</x:Double>
+    <x:Double x:Key="SearchResultPanelWidth">360</x:Double>
+    <x:Double x:Key="NoteMarkerVisualSize">14</x:Double>
+    <x:Double x:Key="NoteMarkerHitSize">28</x:Double>
+    <x:Double x:Key="NoteCardWidth">320</x:Double>
 </ResourceDictionary>

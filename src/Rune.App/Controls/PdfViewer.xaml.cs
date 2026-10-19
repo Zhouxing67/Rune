@@ -127,6 +127,7 @@ public sealed partial class PdfViewer : UserControl
     // Search highlights, grouped by page, plus the active hit.
     private readonly Dictionary<int, List<SearchHit>> _searchByPage = [];
     private SearchHit? _activeHit;
+    private (int Page, AnnotationInfo Info)? _openNote;
 
     // Annotation tools.
     private AnnotationTool _activeTool = AnnotationTool.None;
@@ -155,6 +156,7 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Raised when the armed tool changes, so the toolbar can re-sync its buttons.</summary>
     public event EventHandler<AnnotationTool>? ActiveToolChanged;
     public event EventHandler? HistoryChanged;
+    public event EventHandler<SearchHit>? SearchHitInvoked;
 
     /// <summary>Raised when the user clicks an external (URI) link. The shell decides whether to open it.</summary>
     public event EventHandler<string>? LinkActivated;
@@ -218,6 +220,7 @@ public sealed partial class PdfViewer : UserControl
                 CancelInkStroke();
             }
             ClearSelectionState();
+            HideSelectionToolbar();
             ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(CursorFor(value));
             ActiveToolChanged?.Invoke(this, value);
         }
@@ -318,6 +321,7 @@ public sealed partial class PdfViewer : UserControl
         Canvas.PointerPressed += Canvas_PointerPressed;
         Canvas.PointerReleased += Canvas_PointerReleased;
         Canvas.RightTapped += Canvas_RightTapped;
+        Canvas.Tapped += Canvas_Tapped;
         Canvas.PointerExited += (_, _) => SetLinkCursor(false);
 
         // A gesture the system takes away never raises PointerReleased. Touch
@@ -458,6 +462,9 @@ public sealed partial class PdfViewer : UserControl
         _isSelecting = false;
         _searchByPage.Clear();
         _activeHit = null;
+        CloseNotePopup();
+        HideSelectionToolbar();
+        SearchStrip.SetResults([], [], null);
 
         _scheduler.SetDocument(document);
         ClearCaches();
@@ -772,6 +779,7 @@ public sealed partial class PdfViewer : UserControl
 
     private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
     {
+        HideSelectionToolbar();
         // Use the size the event carries, not the ScrollViewer's own (still
         // stale) ViewportWidth/Height — see _sizeChangedViewport.
         _sizeChangedViewport = e.NewSize;
@@ -824,6 +832,8 @@ public sealed partial class PdfViewer : UserControl
 
     private void Scroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
+        HideSelectionToolbar();
+        CloseNotePopup();
         if (_rebasingZoom)
         {
             return;
@@ -1560,6 +1570,7 @@ public sealed partial class PdfViewer : UserControl
         _selection = pageText.GetSelection(start, end);
         _isSelecting = false;
         Canvas.Invalidate();
+        ShowSelectionToolbar();
         return true;
     }
 
@@ -1925,6 +1936,10 @@ public sealed partial class PdfViewer : UserControl
                 ClearSelectionState();
                 Canvas.Invalidate();
             }
+            else if (!cancelled && HasSelection)
+            {
+                ShowSelectionToolbar();
+            }
         }
         else
         {
@@ -2032,8 +2047,108 @@ public sealed partial class PdfViewer : UserControl
     private static AnnotationInfo? HitTestAnnotation(IReadOnlyList<AnnotationInfo> annotations, double localX, double localY)
         => annotations.LastOrDefault(annot =>
             annot.Subtype != 2 /* links aren't editable */ &&
-            localX >= annot.X - 4 && localX <= annot.X + annot.Width + 4 &&
-            localY >= annot.Y - 4 && localY <= annot.Y + annot.Height + 4);
+            localX >= annot.X - 7 && localX <= annot.X + annot.Width + 7 &&
+            localY >= annot.Y - 7 && localY <= annot.Y + annot.Height + 7);
+
+    private async void Canvas_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (_layout is null || _document is not { } document || _isSelecting) return;
+        Point docPoint = e.GetPosition(Canvas);
+        int page = _layout.PageAt(docPoint.Y);
+        var local = ToPageLocal(page, docPoint);
+        IReadOnlyList<AnnotationInfo> annotations;
+        try
+        {
+            annotations = await _scheduler.RunAsync(PdfWorkPriority.Interactive,
+                () => document.GetAnnotations(page));
+        }
+        catch { return; }
+        if (_document != document) return;
+        var note = HitTestAnnotation(annotations, local.X, local.Y);
+        if (note?.IsNote != true)
+        {
+            CloseNotePopup();
+            return;
+        }
+        _openNote = (page, note);
+        NotePopup.ShowText(note.Contents);
+        PositionNotePopup(e.GetPosition(this));
+        NotePopup.Visibility = Visibility.Visible;
+        NotePopup.Focus(FocusState.Programmatic);
+        e.Handled = true;
+    }
+
+    private void PositionNotePopup(Point anchor)
+    {
+        double width = 320;
+        double height = NotePopup.ActualHeight > 0 ? NotePopup.ActualHeight : 220;
+        double x = anchor.X + 16;
+        if (x + width > ActualWidth - 8) x = anchor.X - width - 16;
+        x = Math.Clamp(x, 8, Math.Max(8, ActualWidth - width - 8));
+        double y = Math.Clamp(anchor.Y - 16, 8, Math.Max(8, ActualHeight - height - 8));
+        NotePopup.Margin = new Thickness(x, y, 0, 0);
+    }
+
+    private async void NotePopup_SaveRequested(object? sender, string text)
+    {
+        if (_openNote is not { } open || _document is not { } document) return;
+        string old = open.Info.Contents;
+        try
+        {
+            await _scheduler.RunAsync(PdfWorkPriority.Interactive,
+                () => document.SetAnnotationContents(open.Page, open.Info.Index, text));
+        }
+        catch { return; }
+        if (_document != document) return;
+        InvalidatePage(open.Page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+        {
+            Label = "edit note",
+            PageIndex = open.Page,
+            UndoAction = d => d.SetAnnotationContents(open.Page, open.Info.Index, old),
+            RedoAction = d => d.SetAnnotationContents(open.Page, open.Info.Index, text),
+        });
+        CloseNotePopup();
+    }
+
+    private async void NotePopup_DeleteRequested(object? sender, EventArgs e)
+    {
+        if (_openNote is not { } open || _document is not { } document) return;
+        AnnotationSpec? spec;
+        try
+        {
+            spec = await _scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+            {
+                var captured = document.CaptureAnnotation(open.Page, open.Info.Index);
+                document.RemoveAnnotation(open.Page, open.Info.Index);
+                return captured;
+            });
+        }
+        catch { return; }
+        if (_document != document) return;
+        InvalidatePage(open.Page);
+        DocumentEdited?.Invoke(this, EventArgs.Empty);
+        if (spec is not null)
+        {
+            AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
+            {
+                Label = "delete note",
+                PageIndex = open.Page,
+                UndoAction = d => d.AddAnnotationFromSpec(spec),
+                RedoAction = d => d.RemoveLastAnnotation(open.Page),
+            });
+        }
+        CloseNotePopup();
+    }
+
+    private void NotePopup_CloseRequested(object? sender, EventArgs e) => CloseNotePopup();
+
+    private void CloseNotePopup()
+    {
+        _openNote = null;
+        NotePopup.Visibility = Visibility.Collapsed;
+    }
 
     // ---------------------------------------------------------------- ink capture
 
@@ -2174,6 +2289,8 @@ public sealed partial class PdfViewer : UserControl
     /// </summary>
     private void BeginSelection(Point docPoint, Pointer? pointer, bool exclusive, bool touch = false)
     {
+        HideSelectionToolbar();
+        CloseNotePopup();
         if (_layout is null || _document is null)
         {
             return;
@@ -2263,6 +2380,7 @@ public sealed partial class PdfViewer : UserControl
 
     public void ClearSelection()
     {
+        HideSelectionToolbar();
         if (HasSelection)
         {
             _selection = null;
@@ -2286,6 +2404,7 @@ public sealed partial class PdfViewer : UserControl
             }
             list.Add(hit);
         }
+        SearchStrip.SetResults(hits, _pageSizes, _activeHit);
         Canvas.Invalidate();
     }
 
@@ -2293,6 +2412,7 @@ public sealed partial class PdfViewer : UserControl
     public void HighlightHit(SearchHit hit)
     {
         _activeHit = hit;
+        SearchStrip.SetActive(hit);
         if (_layout is not null && hit.Rects.Count > 0)
         {
             var pageRect = _layout.GetPageRect(hit.PageIndex);
@@ -2311,8 +2431,80 @@ public sealed partial class PdfViewer : UserControl
     {
         _searchByPage.Clear();
         _activeHit = null;
+        SearchStrip.SetResults([], _pageSizes, null);
         Canvas.Invalidate();
     }
+
+    public async Task<string> GetSearchSnippetAsync(SearchHit hit, string query)
+    {
+        if (_document is not { } document) return query;
+        PageText text;
+        if (!_pageTexts.TryGetValue(hit.PageIndex, out text!))
+        {
+            text = await _scheduler.RunAsync(PdfWorkPriority.Background, () => document.GetPageText(hit.PageIndex));
+            if (_document != document) return query;
+        }
+        int context = 42;
+        int start = Math.Max(0, hit.CharIndex - context);
+        int end = Math.Min(text.Text.Length, hit.CharIndex + hit.Length + context);
+        string snippet = text.Text[start..end].Replace('\r', ' ').Replace('\n', ' ').Trim();
+        return $"{(start > 0 ? "…" : "")}{snippet}{(end < text.Text.Length ? "…" : "")}";
+    }
+
+    private void SearchStrip_HitInvoked(object sender, SearchHit hit)
+    {
+        HighlightHit(hit);
+        SearchHitInvoked?.Invoke(this, hit);
+    }
+
+    private void SelectionActions_ActionRequested(object? sender, SelectionToolbarAction action)
+    {
+        switch (action)
+        {
+            case SelectionToolbarAction.Highlight:
+                MarkupSelection(MarkupKind.Highlight);
+                break;
+            case SelectionToolbarAction.Underline:
+                MarkupSelection(MarkupKind.Underline);
+                break;
+            case SelectionToolbarAction.Strikeout:
+                MarkupSelection(MarkupKind.Strikeout);
+                break;
+            case SelectionToolbarAction.Copy:
+                CopySelectionToClipboard();
+                ClearSelection();
+                break;
+            case SelectionToolbarAction.Note:
+                if (_selection is { Rects.Count: > 0 } selection)
+                {
+                    var first = selection.Rects[0];
+                    NoteRequested?.Invoke(this, (selection.PageIndex, first.X, first.Y + first.Height));
+                }
+                HideSelectionToolbar();
+                break;
+        }
+    }
+
+    private void ShowSelectionToolbar()
+    {
+        if (_selection is not { Rects.Count: > 0 } selection || _layout is null) return;
+        var page = _layout.GetPageRect(selection.PageIndex);
+        var drawnRects = selection.Rects.Select(r => RotationFor(selection.PageIndex).ToDrawn(r)).ToList();
+        double left = page.X + drawnRects.Min(r => r.X) * _zoom - Scroller.HorizontalOffset;
+        double right = page.X + drawnRects.Max(r => r.X + r.Width) * _zoom - Scroller.HorizontalOffset;
+        double top = page.Y + drawnRects.Min(r => r.Y) * _zoom - Scroller.VerticalOffset;
+        double bottom = page.Y + drawnRects.Max(r => r.Y + r.Height) * _zoom - Scroller.VerticalOffset;
+        double width = SelectionActions.ActualWidth > 0 ? SelectionActions.ActualWidth : 228;
+        double height = SelectionActions.ActualHeight > 0 ? SelectionActions.ActualHeight : 44;
+        double x = Math.Clamp((left + right - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
+        double y = top - height - 8;
+        if (y < 8) y = bottom + 8;
+        y = Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8));
+        SelectionActions.Margin = new Thickness(x, y, 0, 0);
+        SelectionActions.Visibility = Visibility.Visible;
+    }
+
+    private void HideSelectionToolbar() => SelectionActions.Visibility = Visibility.Collapsed;
 
     /// <summary>Pointer position translated into document (layout) space, in DIPs.</summary>
     private Point DocumentPointFromPointer(PointerRoutedEventArgs e)
