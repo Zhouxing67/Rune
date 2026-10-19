@@ -46,14 +46,14 @@
 
     <!-- Sidebar. Thumbnail boxes take their height from each page's own aspect
          ratio; the clamps keep a poster (1:10) or a banner (10:1) usable. -->
-    <x:Double x:Key="SidebarWidth">360</x:Double>
+    <x:Double x:Key="SidebarWidth">312</x:Double>
     <x:Double x:Key="OutlineRowHeight">42</x:Double>
     <!-- ColumnDefinition.Width is GridLength, not Double. Because outline
          templates are realized lazily, a Double resource compiles but throws
          XamlParseException the first time the Chapters pane is opened. -->
     <GridLength x:Key="OutlinePageWidth">48</GridLength>
     <x:Double x:Key="OutlineIndent">20</x:Double>
-    <x:Double x:Key="SidebarThumbWidth">168</x:Double>
+    <x:Double x:Key="SidebarThumbWidth">224</x:Double>
     <x:Double x:Key="SidebarThumbMinHeight">96</x:Double>
     <x:Double x:Key="SidebarThumbMaxHeight">320</x:Double>
 
