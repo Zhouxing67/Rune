@@ -312,23 +312,33 @@ public sealed partial class PdfDocument
     }
 
     /// <summary>Changes an annotation's standard PDF colour in place.</summary>
-    public void SetAnnotationColor(int pageIndex, int annotationIndex, byte r, byte g, byte b, byte a)
+    public int SetAnnotationColor(int pageIndex, int annotationIndex, byte r, byte g, byte b, byte a)
     {
-        lock (PdfiumLibrary.Lock)
+        // PDFium keeps an appearance stream for many existing markups and
+        // renders that stream ahead of /C. Rebuild the standard annotation
+        // from its captured geometry so the new colour is visible everywhere,
+        // including after save/reopen. Re-creation appends it to the page.
+        AnnotationSpec original = CaptureAnnotation(pageIndex, annotationIndex)
+            ?? throw new PdfiumException("Could not capture the annotation.", 1);
+        if (original.Subtype is not ((int)MarkupKind.Highlight)
+            and not ((int)MarkupKind.Underline)
+            and not ((int)MarkupKind.Strikeout))
         {
-            ObjectDisposedException.ThrowIf(_handle == IntPtr.Zero, this);
-            IntPtr page = AcquirePageLocked(pageIndex);
-            if (page == IntPtr.Zero) throw PdfiumNative.LastError();
-            try
-            {
-                IntPtr annot = PdfiumNative.GetAnnot(page, annotationIndex);
-                if (annot == IntPtr.Zero) throw new PdfiumException("Could not open the annotation.", 1);
-                try { PdfiumNative.SetAnnotColor(annot, r, g, b, a); }
-                finally { PdfiumNative.CloseAnnot(annot); }
-            }
-            finally { ReleasePageLocked(pageIndex); }
+            throw new InvalidOperationException("Only text-markup annotation colours can be changed.");
         }
-        IsDirty = true;
+
+        if (!RemoveAnnotation(pageIndex, annotationIndex))
+            throw new PdfiumException("Could not replace the annotation.", 1);
+        try
+        {
+            AddAnnotationFromSpec(original with { Color = (r, g, b, a) });
+        }
+        catch
+        {
+            AddAnnotationFromSpec(original);
+            throw;
+        }
+        return GetAnnotations(pageIndex).Count - 1;
     }
 
     /// <summary>Updates the interoperable /Contents of an existing annotation.</summary>

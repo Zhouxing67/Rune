@@ -2220,22 +2220,24 @@ public sealed partial class PdfViewer : UserControl
         if (e.Color is not { } color) return;
         var old = open.Info.Color;
         byte alpha = open.Info.Subtype == (int)MarkupKind.Highlight ? (old.A == 255 ? (byte)102 : old.A) : (byte)255;
+        int newIndex;
         try
         {
-            await _scheduler.RunAsync(PdfWorkPriority.Interactive,
+            newIndex = await _scheduler.RunAsync(PdfWorkPriority.Interactive,
                 () => document.SetAnnotationColor(open.Page, open.Info.Index, color.R, color.G, color.B, alpha));
         }
         catch { return; }
         if (_document != document) return;
         InvalidatePage(open.Page);
         DocumentEdited?.Invoke(this, EventArgs.Empty);
+        int editIndex = newIndex;
         AnnotationEdited?.Invoke(this, new AnnotationEditEventArgs
         {
             Label = "change markup colour", PageIndex = open.Page,
-            UndoAction = d => d.SetAnnotationColor(open.Page, open.Info.Index, old.R, old.G, old.B, old.A),
-            RedoAction = d => d.SetAnnotationColor(open.Page, open.Info.Index, color.R, color.G, color.B, alpha),
+            UndoAction = d => editIndex = d.SetAnnotationColor(open.Page, editIndex, old.R, old.G, old.B, old.A),
+            RedoAction = d => editIndex = d.SetAnnotationColor(open.Page, editIndex, color.R, color.G, color.B, alpha),
         });
-        _openMarkup = (open.Page, open.Info with { Color = (color.R, color.G, color.B, alpha) });
+        _openMarkup = (open.Page, open.Info with { Index = newIndex, Color = (color.R, color.G, color.B, alpha) });
     }
 
     private void HideMarkupToolbar()

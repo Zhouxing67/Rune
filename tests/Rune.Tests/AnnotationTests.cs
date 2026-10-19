@@ -158,6 +158,41 @@ public class AnnotationTests
     }
 
     [Fact]
+    public void SetAnnotationColor_ChangesRenderedAppearance()
+    {
+        using var doc = PdfDocument.Open(CorpusPath("hello.pdf"));
+        doc.AddMarkup(0, MarkupKind.Highlight, [new TextRect(70, 50, 240, 30)], 255, 210, 0, 102);
+        var annotation = Assert.Single(doc.GetAnnotations(0));
+        var before = doc.RenderPage(0, 1.0f);
+
+        doc.SetAnnotationColor(0, annotation.Index, 38, 139, 210, 102);
+        var after = doc.RenderPage(0, 1.0f);
+        try
+        {
+            Assert.True(CountBlue(after) > CountBlue(before) + 500,
+                "the annotation colour changed in the object model but its rendered appearance did not");
+        }
+        finally
+        {
+            before.Return();
+            after.Return();
+        }
+
+        static int CountBlue(PageBitmap bitmap)
+        {
+            int count = 0;
+            for (int y = 0; y < bitmap.Height; y++)
+            for (int x = 0; x < bitmap.Width; x++)
+            {
+                int i = y * bitmap.Stride + x * 4;
+                byte b = bitmap.Pixels[i], g = bitmap.Pixels[i + 1], r = bitmap.Pixels[i + 2];
+                if (b > r + 15 && b > g) count++;
+            }
+            return count;
+        }
+    }
+
+    [Fact]
     public void AddInk_SaveAs_Reopen_InkAnnotationPersists()
     {
         string saved = TempPdf();
