@@ -45,7 +45,8 @@ public sealed record AnnotationSpec(
     float BorderWidth,
     string Contents,
     StampImage? Stamp = null,
-    TextBoxContent? Text = null);
+    TextBoxContent? Text = null,
+    string IconName = "");
 
 public sealed partial class PdfDocument
 {
@@ -228,11 +229,11 @@ public sealed partial class PdfDocument
 
                     // Compact Fluent-style marker. The viewer keeps a larger
                     // hit target, so the smaller visual does not cost usability.
-                    const float size = 11f;
+                    const float size = 8f;
                     PdfiumNative.SetAnnotRect(annot, (float)px, (float)py - size, (float)px + size, (float)py);
                     PdfiumNative.SetAnnotString(annot, "Contents", text);
-                    // Softer Fluent amber avoids PDFium's harsh neon marker.
-                    PdfiumNative.SetAnnotColor(annot, 255, 185, 55, 255);
+                    PdfiumNative.SetAnnotString(annot, "Name", "Comment");
+                    PdfiumNative.SetAnnotColor(annot, 0, 120, 212, 255);
                     PdfiumNative.SetAnnotPrintFlag(annot);
                 }
                 finally
@@ -491,7 +492,8 @@ public sealed partial class PdfDocument
                         PdfiumNative.GetAnnotBorderWidth(annot),
                         PdfiumNative.GetAnnotString(annot, "Contents"),
                         stamp,
-                        text);
+                        text,
+                        PdfiumNative.GetAnnotString(annot, "Name"));
                 }
                 finally
                 {
@@ -594,6 +596,10 @@ public sealed partial class PdfDocument
                     if (!string.IsNullOrEmpty(spec.Contents))
                     {
                         PdfiumNative.SetAnnotString(annot, "Contents", spec.Contents);
+                    }
+                    if (spec.Subtype == PdfiumNative.AnnotText && !string.IsNullOrEmpty(spec.IconName))
+                    {
+                        PdfiumNative.SetAnnotString(annot, "Name", spec.IconName);
                     }
                     PdfiumNative.SetAnnotPrintFlag(annot);
                 }

@@ -62,9 +62,7 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
     </Style>
 
-    <!-- Selection actions are one capsule, not five adjacent control boxes.
-         The stock Button template still supplies restrained hover/pressed
-         fills while the resting surface remains completely transparent. -->
+    <!-- Rectangular surface with visibly separated split-button groups. -->
     <Style x:Key="SelectionToolbarSurfaceStyle" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
@@ -91,6 +89,9 @@
 
     <Style x:Key="SelectionToolbarToolGroupStyle" TargetType="Border">
         <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Margin" Value="1,0" />
     </Style>
 
     <Style x:Key="SelectionToolbarSeparatorStyle" TargetType="Border">
