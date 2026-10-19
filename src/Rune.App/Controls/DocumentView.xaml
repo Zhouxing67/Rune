@@ -24,7 +24,7 @@
                     x:Name="ThumbList"
                     Grid.Row="0"
                     SelectionMode="Extended"
-                    Padding="4,8"
+                    Padding="8,8"
                     CanDragItems="True"
                     CanReorderItems="True"
                     AllowDrop="True"
@@ -41,14 +41,6 @@
                                 <!-- Height follows the page's own aspect ratio (see
                                      ThumbnailItem.BoxHeight), so landscape and 4:3
                                      slides aren't letterboxed in a portrait box. -->
-                                <!-- Two layers. The card Border's opaque background
-                                     paints ON TOP of the ListViewItem's selection
-                                     tint, which is why the current page was nearly
-                                     invisible in light theme; so the ring is drawn
-                                     as an overlay that owes nothing to the container.
-                                     Only its thickness is bound — the accent brush
-                                     stays here as a ThemeResource so it resolves
-                                     against the live theme. -->
                                 <Grid
                                     Width="{StaticResource SidebarThumbWidth}"
                                     Height="{x:Bind BoxHeight, Mode=OneWay}">
@@ -59,11 +51,6 @@
                                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
                                     </Border>
-                                    <Border
-                                        BorderThickness="{x:Bind RingThickness, Mode=OneWay}"
-                                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
-                                        CornerRadius="4"
-                                        IsHitTestVisible="False" />
                                 </Grid>
                                 <TextBlock
                                     Text="{x:Bind Label}"
@@ -100,7 +87,7 @@
                                     <TextBlock Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center"
                                                Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
-                                               Text="{x:Bind PageLabel}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                               Text="{x:Bind PageLabel}" Style="{StaticResource CaptionTextStyle}" />
                                 </Grid>
                             </TreeViewItem>
                         </DataTemplate>

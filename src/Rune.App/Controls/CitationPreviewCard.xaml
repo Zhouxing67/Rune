@@ -18,19 +18,18 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="Reference" Style="{StaticResource BodyStrongTextBlockStyle}"
-                           VerticalAlignment="Center" FontSize="14" />
+                <TextBlock Text="Reference" Style="{StaticResource ControlTitleTextStyle}"
+                           VerticalAlignment="Center" />
                 <Border Grid.Column="1" Margin="8,0,0,0" Padding="7,2"
                         VerticalAlignment="Center" CornerRadius="8"
                         Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                    <TextBlock x:Name="PageLabel" FontSize="11"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock x:Name="PageLabel" Style="{StaticResource CaptionTextStyle}" />
                 </Border>
                 <Button Grid.Column="3" HorizontalAlignment="Right"
-                        Style="{StaticResource IconButtonStyle}" Width="30" Height="30"
+                        Style="{StaticResource CompactIconButtonStyle}"
                         Click="Close_Click" AutomationProperties.Name="Close reference preview"
                         ToolTipService.ToolTip="Close">
-                    <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    <FontIcon Glyph="&#xE711;" FontSize="{StaticResource CompactGlyphSize}" />
                 </Button>
             </Grid>
 
@@ -39,7 +38,7 @@
                     Background="{ThemeResource SubtleFillColorTertiaryBrush}">
                 <ScrollViewer MaxHeight="164" VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="ReferenceText" TextWrapping="WrapWholeWords"
-                               IsTextSelectionEnabled="True" FontSize="13" LineHeight="19"
+                               IsTextSelectionEnabled="True" Style="{StaticResource BodyTextStyle}" LineHeight="20"
                                Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
                 </ScrollViewer>
             </Border>
@@ -47,19 +46,18 @@
             <Grid Grid.Row="2" MinHeight="42" Padding="8,4">
                 <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="2">
                     <Button x:Name="OpenLinkButton" Click="OpenLink_Click"
-                            Visibility="Collapsed" MinHeight="30" Padding="9,4"
-                            Background="Transparent" BorderThickness="0">
+                            Visibility="Collapsed" Style="{StaticResource CompactTextButtonStyle}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <FontIcon Glyph="&#xE8A7;" FontSize="13" />
-                            <TextBlock Text="Open link" FontSize="12" />
+                            <FontIcon Glyph="&#xE8A7;" FontSize="{StaticResource CompactGlyphSize}" />
+                            <TextBlock Text="Open link" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="GoTo_Click" MinHeight="30" Padding="9,4"
-                            Background="Transparent" BorderThickness="0"
+                    <Button Click="GoTo_Click" Style="{StaticResource CompactTextButtonStyle}"
                             Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Go to reference" FontSize="12" />
-                            <FontIcon Glyph="&#xE72A;" FontSize="12" />
+                            <TextBlock Text="Go to reference" Style="{StaticResource CaptionTextStyle}"
+                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            <FontIcon Glyph="&#xE72A;" FontSize="{StaticResource CompactGlyphSize}" />
                         </StackPanel>
                     </Button>
                 </StackPanel>

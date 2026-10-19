@@ -6,19 +6,12 @@
     Visibility="Collapsed">
 
     <Border
+        Style="{StaticResource OverlaySurfaceStyle}"
         MaxWidth="560"
         MaxHeight="420"
         Margin="0,8,0,0"
         VerticalAlignment="Top"
-        HorizontalAlignment="Center"
-        CornerRadius="8"
-        BorderThickness="1"
-        BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
-        Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
-        Translation="0,0,32">
-        <Border.Shadow>
-            <ThemeShadow />
-        </Border.Shadow>
+        HorizontalAlignment="Center">
         <Grid MinWidth="480">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

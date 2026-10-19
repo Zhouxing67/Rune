@@ -98,9 +98,9 @@ public sealed partial class MainWindow
             _ => PenToolButton,
         };
 
-        var root = new StackPanel { Spacing = 10, MinWidth = 240 };
-        var caption = (Style)Application.Current.Resources["CaptionTextBlockStyle"];
-        var secondary = (Style)Application.Current.Resources["SecondaryTextStyle"];
+        var root = new StackPanel { Spacing = Metric("SpaceM"), MinWidth = Metric("ToolFlyoutMinWidth") };
+        var caption = UiStyle("ControlTitleTextStyle");
+        var secondary = UiStyle("SecondaryTextStyle");
 
         var panel = new ToolPanel { Flyout = new Flyout(), Anchor = anchor, Swatches = [] };
 
@@ -111,12 +111,12 @@ public sealed partial class MainWindow
             // unlimited horizontal space. The instruction line then stretches
             // the Flyout far beyond the other tool panels and produces a
             // horizontal scrollbar. Match the markup panel's compact width.
-            root.Width = 360;
+            root.Width = Metric("ToolFlyoutWidth");
             root.Children.Add(new TextBlock { Text = "Signature", Style = caption });
 
             // Saved signatures are filled in asynchronously (decoding PNGs) but
             // the panel itself is built once, so keep a container to refill.
-            var list = new StackPanel { Spacing = 6 };
+            var list = new StackPanel { Spacing = Metric("SpaceS") };
             root.Children.Add(list);
             _signatureList = list;
 
@@ -127,7 +127,7 @@ public sealed partial class MainWindow
                      + "Ctrl+wheel resizes before placement.",
                 Style = secondary,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 360,
+                MaxWidth = Metric("ToolFlyoutWidth"),
             });
 
             // "Draw new" since v0.5.0, but the dialog behind it now draws, types
@@ -167,7 +167,7 @@ public sealed partial class MainWindow
         // ---- Colours: a 6-column grid, like the reference ----
         root.Children.Add(new TextBlock { Text = "Colour", Style = caption });
 
-        var grid = new Grid { ColumnSpacing = 6, RowSpacing = 6 };
+        var grid = new Grid { ColumnSpacing = Metric("SpaceS"), RowSpacing = Metric("SpaceS") };
         for (int c = 0; c < 6; c++)
         {
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -185,9 +185,9 @@ public sealed partial class MainWindow
             // it reads on both a black and a white swatch.
             var ring = new Border
             {
-                Width = 30,
-                Height = 30,
-                CornerRadius = new CornerRadius(15),
+                Width = Metric("SwatchRingSize"),
+                Height = Metric("SwatchRingSize"),
+                CornerRadius = new CornerRadius(Metric("SwatchRingSize") / 2),
                 BorderThickness = new Thickness(2),
                 BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                     new Windows.UI.ViewManagement.UISettings().GetColorValue(
@@ -199,9 +199,9 @@ public sealed partial class MainWindow
             // made the swatch turn white under the cursor.
             var dot = new Border
             {
-                Width = 22,
-                Height = 22,
-                CornerRadius = new CornerRadius(11),
+                Width = Metric("SwatchDotSize"),
+                Height = Metric("SwatchDotSize"),
+                CornerRadius = new CornerRadius(Metric("SwatchDotSize") / 2),
                 Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(HexToColor(hex)),
                 // A hairline keeps white (and near-white) swatches visible.
                 BorderThickness = new Thickness(1),
@@ -236,7 +236,7 @@ public sealed partial class MainWindow
         if (isMarkup)
         {
             root.Children.Add(new TextBlock { Text = "Style", Style = caption });
-            var kinds = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var kinds = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Metric("SpaceS") };
             foreach (var (label, value) in new[] { ("Highlight", "Highlight"), ("Underline", "Underline"), ("Strikeout", "Strikeout") })
             {
                 var button = new ToggleButton
@@ -300,7 +300,7 @@ public sealed partial class MainWindow
         root.Children.Add(opacity);
         panel.Opacity = opacity;
 
-        root.Children.Add(new Border { Style = (Style)Application.Current.Resources["FlyoutSeparatorStyle"] });
+        root.Children.Add(new Border { Style = UiStyle("FlyoutSeparatorStyle") });
 
         var stop = new Button
         {

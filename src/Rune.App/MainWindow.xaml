@@ -70,16 +70,15 @@
             </TabView.TabStripFooter>
         </TabView>
 
-        <!-- Header bar (GNOME Papers proportions): one slim row of flat icon
-             buttons; everything else lives in the hamburger menu. -->
+        <!-- Reader toolbar: three real layout regions. The central tool group
+             participates in Grid measurement and can no longer overlap the
+             navigation groups at narrower widths. -->
+        <Border Grid.Row="1" Style="{StaticResource ChromeSurfaceStyle}">
         <Grid
             x:Name="Toolbar"
-            Grid.Row="1"
             Height="{StaticResource HeaderHeight}"
             Padding="8,0"
-            ColumnSpacing="2">
-            <!-- Left group = view state (sidebar, page, fit, rotate);
-                 right group = actions (find, pen, night, menu). -->
+            ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -94,6 +93,9 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Grid.ColumnSpan="7"
+                    Style="{StaticResource ToolbarGroupSurfaceStyle}" />
 
             <ToggleButton
                 x:Name="SidebarButton"
@@ -175,21 +177,12 @@
                 <FontIcon Glyph="&#xE7AD;" FontSize="{StaticResource IconGlyphSize}" />
             </Button>
 
-            <!-- Annotation tools, centred in the toolbar's empty middle column
-                 (Snipping Tool's arrangement). Exactly one is armed at a time;
-                 clicking one opens its options directly beneath it. -->
-            <!-- Spans every column rather than sitting in the empty middle one:
-                 the left group is much wider than the right, so centring within
-                 the gap would leave the cluster visibly off-centre in the
-                 window. Overlaying and centring across the whole row puts it
-                 where the eye expects. -->
-            <StackPanel
-                Grid.Column="0"
-                Grid.ColumnSpan="12"
-                Orientation="Horizontal"
-                Spacing="2"
+            <!-- Content tools are a real middle group, not an overlay spanning
+                 the complete toolbar. -->
+            <Border Grid.Column="7" Style="{StaticResource ToolbarGroupSurfaceStyle}"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center">
+            <StackPanel Orientation="Horizontal" Spacing="2">
                 <ToggleButton
                     x:Name="PenToolButton"
                     Style="{StaticResource IconToggleButtonStyle}"
@@ -214,6 +207,7 @@
                     AutomationProperties.Name="Sticky note" ToolTipService.ToolTip="Note — click to add a sticky note">
                     <FontIcon Glyph="&#xE70B;" FontSize="{StaticResource IconGlyphSize}" />
                 </ToggleButton>
+                <Border Style="{StaticResource HeaderSeparatorStyle}" Margin="2,0" />
                 <ToggleButton
                     x:Name="TextToolButton"
                     Style="{StaticResource IconToggleButtonStyle}"
@@ -238,6 +232,7 @@
                     AutomationProperties.Name="Sign" ToolTipService.ToolTip="Sign — place your signature">
                     <FontIcon Glyph="&#xEE56;" FontSize="{StaticResource IconGlyphSize}" />
                 </ToggleButton>
+                <Border Style="{StaticResource HeaderSeparatorStyle}" Margin="2,0" />
                 <ToggleButton
                     x:Name="EraserToolButton"
                     Style="{StaticResource IconToggleButtonStyle}"
@@ -247,8 +242,10 @@
                     <FontIcon Glyph="&#xE75C;" FontSize="{StaticResource IconGlyphSize}" />
                 </ToggleButton>
             </StackPanel>
+            </Border>
 
-            <StackPanel Grid.Column="8" Grid.ColumnSpan="2" Orientation="Horizontal" Spacing="2">
+            <Border Grid.Column="8" Grid.ColumnSpan="2" Style="{StaticResource ToolbarGroupSurfaceStyle}">
+            <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button x:Name="HistoryBackButton" Style="{StaticResource IconButtonStyle}"
                         Click="HistoryBackButton_Click" IsEnabled="False"
                         AutomationProperties.Name="Back" ToolTipService.ToolTip="Back (Alt+Left)">
@@ -265,6 +262,7 @@
                     <FontIcon Glyph="&#xE721;" FontSize="{StaticResource IconGlyphSize}" />
                 </Button>
             </StackPanel>
+            </Border>
             <Button
                 x:Name="MenuButton"
                 Grid.Column="10"
@@ -368,6 +366,7 @@
                 </Button.Flyout>
             </Button>
         </Grid>
+        </Border>
 
         <Grid Grid.Row="2">
             <!-- The selected tab's DocumentView is swapped in here. -->
@@ -446,35 +445,35 @@
                             Orientation="Horizontal" Spacing="18" Margin="0,0,0,40">
                     <Image Source="/Assets/Square150x150Logo.scale-100.png" Width="60" Height="60" />
                     <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="Rune" FontSize="28" FontWeight="SemiBold" />
-                        <TextBlock Text="{x:Bind VersionLabel}" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="Rune" Style="{StaticResource DisplayTextStyle}" />
+                        <TextBlock Text="{x:Bind VersionLabel}" Style="{StaticResource SecondaryTextStyle}" />
                     </StackPanel>
                 </StackPanel>
 
                 <StackPanel x:Name="ActionPanel" Grid.Row="1" Grid.Column="0" Spacing="7">
-                    <TextBlock Text="Get started" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,14" />
+                    <TextBlock Text="Get started" Style="{StaticResource SectionTitleTextStyle}" Margin="4,0,0,14" />
                     <Button Height="{StaticResource HomeCardHeight}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
-                            CornerRadius="6" Style="{StaticResource AccentButtonStyle}" Click="OpenButton_Click">
+                            CornerRadius="{StaticResource RadiusCard}" Style="{StaticResource AccentButtonStyle}" Click="OpenButton_Click">
                         <Grid Padding="10,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <FontIcon Glyph="&#xE8E5;" FontSize="24" VerticalAlignment="Center" Margin="0,0,18,0" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Open a local PDF" FontSize="15" FontWeight="SemiBold" />
-                                <TextBlock Text="Choose a file, or drag one into this window" FontSize="12" Opacity="0.84" />
+                                <TextBlock Text="Open a local PDF" Style="{StaticResource ControlTitleTextStyle}" />
+                                <TextBlock Text="Choose a file, or drag one into this window" Style="{StaticResource CaptionTextStyle}" Foreground="White" Opacity="0.84" />
                             </StackPanel>
-                            <TextBlock Grid.Column="2" Text="Ctrl + O" FontSize="14" VerticalAlignment="Center" Opacity="0.78" />
+                            <TextBlock Grid.Column="2" Text="Ctrl + O" Style="{StaticResource BodyTextStyle}" VerticalAlignment="Center" Opacity="0.78" />
                         </Grid>
                     </Button>
                     <Button Height="{StaticResource HomeCardHeight}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                             Background="{ThemeResource HomeCardBackgroundBrush}"
                             BorderBrush="{ThemeResource HomeCardBorderBrush}" BorderThickness="1"
-                            CornerRadius="6" Click="SettingsButton_Click">
+                            CornerRadius="{StaticResource RadiusCard}" Click="SettingsButton_Click">
                         <Grid Padding="10,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <FontIcon Glyph="&#xE713;" FontSize="24" VerticalAlignment="Center" Margin="0,0,18,0" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                <TextBlock Text="Settings" FontSize="15" FontWeight="SemiBold" />
-                                <TextBlock Text="Reading, appearance and application preferences" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <TextBlock Text="Settings" Style="{StaticResource ControlTitleTextStyle}" />
+                                <TextBlock Text="Reading, appearance and application preferences" Style="{StaticResource CaptionTextStyle}" />
                             </StackPanel>
                         </Grid>
                     </Button>
@@ -482,8 +481,8 @@
 
                 <Grid x:Name="RecentPanel" Grid.Row="1" Grid.Column="2">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <TextBlock x:Name="RecentsHeader" Text="Recently opened" FontSize="20"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,14" />
+                    <TextBlock x:Name="RecentsHeader" Text="Recently opened" Style="{StaticResource SectionTitleTextStyle}"
+                               Margin="4,0,0,14" />
                     <ListView x:Name="RecentThumbs" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True"
                               ItemClick="RecentThumbs_ItemClick" HorizontalContentAlignment="Stretch">
                         <ListView.ItemContainerStyle>
@@ -494,7 +493,7 @@
                                 <Setter Property="MinHeight" Value="0" />
                                 <Setter Property="Background" Value="Transparent" />
                                 <Setter Property="BorderThickness" Value="0" />
-                                <Setter Property="CornerRadius" Value="6" />
+                                <Setter Property="CornerRadius" Value="{StaticResource RadiusCard}" />
                             </Style>
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
@@ -504,14 +503,14 @@
                                         Background="{ThemeResource HomeCardBackgroundBrush}"
                                         BorderBrush="{ThemeResource HomeCardBorderBrush}"
                                         BorderThickness="1"
-                                        CornerRadius="6"
+                                        CornerRadius="{StaticResource RadiusCard}"
                                         RightTapped="RecentCard_RightTapped">
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                         <FontIcon Glyph="&#xE8A5;" FontSize="24" VerticalAlignment="Center" Margin="0,0,18,0" />
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind DisplayName}" FontSize="14" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                            <TextBlock Text="{x:Bind LastOpenedText}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                            <TextBlock Text="{x:Bind DisplayName}" Style="{StaticResource ControlTitleTextStyle}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                            <TextBlock Text="{x:Bind LastOpenedText}" Style="{StaticResource CaptionTextStyle}" />
                                         </StackPanel>
                                         <Button Grid.Column="2" Width="40" Height="40" Background="Transparent" BorderThickness="0"
                                                 Click="RecentRemoveButton_Click" ToolTipService.ToolTip="Remove from recents"
@@ -528,16 +527,13 @@
                                 VerticalAlignment="Center" Visibility="Collapsed">
                         <FontIcon Glyph="&#xEA90;" FontSize="42" Foreground="{ThemeResource TextFillColorDisabledBrush}" HorizontalAlignment="Center" />
                         <TextBlock Text="No recent documents" FontWeight="SemiBold" HorizontalAlignment="Center" />
-                        <TextBlock Text="Open a PDF to get started" FontSize="13" HorizontalAlignment="Center"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Text="Open a PDF to get started" Style="{StaticResource SecondaryTextStyle}" HorizontalAlignment="Center" />
                     </StackPanel>
                 </Grid>
 
                 <StackPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Spacing="6" Margin="0,48,0,0">
-                    <TextBlock Text="Rune — open-source Windows PDF reader" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <TextBlock Text="Built with .NET, WinUI 3 and PDFium" FontSize="12"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="Rune — open-source Windows PDF reader" Style="{StaticResource CaptionTextStyle}" />
+                    <TextBlock Text="Built with .NET, WinUI 3 and PDFium" Style="{StaticResource TertiaryTextStyle}" />
                 </StackPanel>
               </Grid>
             </ScrollViewer>
@@ -630,15 +626,12 @@
             <!-- Find bar -->
             <Border
                 x:Name="FindBar"
+                Style="{StaticResource OverlaySurfaceStyle}"
                 Visibility="Collapsed"
                 VerticalAlignment="Top"
                 HorizontalAlignment="Right"
                 Margin="0,8,16,0"
-                Padding="6"
-                Background="{ThemeResource AcrylicBackgroundFillColorDefaultBrush}"
-                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
+                Padding="6">
                 <Grid Width="{StaticResource SearchResultPanelWidth}" MaxHeight="520">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />

@@ -4,25 +4,26 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="{StaticResource NoteCardWidth}" KeyDown="Root_KeyDown">
     <Border Style="{StaticResource OverlayCardSurfaceStyle}">
-        <Grid RowSpacing="10">
+        <Grid RowSpacing="{StaticResource SpaceS}">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <Grid>
-                <TextBlock Text="Note" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                <Button HorizontalAlignment="Right" Style="{StaticResource IconButtonStyle}"
+                <TextBlock Text="Note" Style="{StaticResource ControlTitleTextStyle}" VerticalAlignment="Center" />
+                <Button HorizontalAlignment="Right" Style="{StaticResource CompactIconButtonStyle}"
                         Click="Close_Click" AutomationProperties.Name="Close note" ToolTipService.ToolTip="Close (Esc)">
-                    <FontIcon Glyph="&#xE711;" FontSize="12" />
+                    <FontIcon Glyph="&#xE711;" FontSize="{StaticResource CompactGlyphSize}" />
                 </Button>
             </Grid>
             <ScrollViewer Grid.Row="1" MaxHeight="240">
-                <TextBlock x:Name="ReadText" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                <TextBlock x:Name="ReadText" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                           Style="{StaticResource BodyTextStyle}" />
             </ScrollViewer>
             <TextBox x:Name="EditText" Grid.Row="1" AcceptsReturn="True" TextWrapping="Wrap"
                      MinHeight="120" MaxHeight="240" Visibility="Collapsed" />
-            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="{StaticResource SpaceXS}" HorizontalAlignment="Right">
                 <Button x:Name="DeleteButton" Content="Delete" Click="Delete_Click" />
                 <Button x:Name="EditButton" Content="Edit" Click="Edit_Click" />
                 <Button x:Name="SaveButton" Content="Save" Style="{StaticResource AccentButtonStyle}"

@@ -14,6 +14,9 @@ namespace Rune;
 
 public sealed partial class MainWindow : Window
 {
+    private static double Metric(string key) => (double)Application.Current.Resources[key];
+    private static Style UiStyle(string key) => (Style)Application.Current.Resources[key];
+
     // tools/capture-demo.ps1 points this at a throwaway directory through
     // RUNE_STATE_DIR, so a recording cannot pick up the user's own recents,
     // theme or session and paint their filenames into every frame. Unset in
@@ -1169,7 +1172,7 @@ public sealed partial class MainWindow : Window
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinHeight = 100,
-            MinWidth = 360,
+            MinWidth = Metric("ToolFlyoutWidth"),
             PlaceholderText = "Note text…",
         };
         var dialog = new ContentDialog
@@ -1226,7 +1229,7 @@ public sealed partial class MainWindow : Window
         int index = Array.FindIndex(FormTextSizes, s => Math.Abs(s.Value - request.Current.FontSize) < 0.01);
         sizes.SelectedIndex = index >= 0 ? index : 0;
 
-        var swatches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var swatches = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Metric("SpaceS") };
         int chosenColor = Array.FindIndex(FormTextColors,
             c => c.R == request.Current.R && c.G == request.Current.G && c.B == request.Current.B);
         if (chosenColor < 0)
@@ -1254,8 +1257,8 @@ public sealed partial class MainWindow : Window
             swatches.Children.Add(button);
         }
 
-        var caption = (Style)Application.Current.Resources["CaptionTextBlockStyle"];
-        var body = new StackPanel { Spacing = 8, MinWidth = 320 };
+        var caption = UiStyle("ControlTitleTextStyle");
+        var body = new StackPanel { Spacing = Metric("SpaceS"), MinWidth = Metric("DialogWidthCompact") };
         body.Children.Add(new TextBlock { Text = "Size", Style = caption });
         body.Children.Add(sizes);
         body.Children.Add(new TextBlock { Text = "Colour", Style = caption });
@@ -1502,7 +1505,7 @@ public sealed partial class MainWindow : Window
         var sections = await view.Viewer.RunOnRenderThreadAsync(
             PdfWorkPriority.Interactive, () => document.GetDocumentProperties(page));
 
-        var panel = new StackPanel { Spacing = 14, MinWidth = 420 };
+        var panel = new StackPanel { Spacing = Metric("SpaceL"), MinWidth = Metric("DialogWidthNormal") };
         foreach (var section in sections)
         {
             panel.Children.Add(BuildPropertySection(section.Title, section.Rows));
@@ -1510,7 +1513,7 @@ public sealed partial class MainWindow : Window
 
         // A placeholder that fills itself in, rather than a section that pops
         // into existence and shoves the rest of the dialog down.
-        var fonts = new StackPanel { Spacing = 4 };
+        var fonts = new StackPanel { Spacing = Metric("SpaceXS") };
         panel.Children.Add(BuildPropertySection("Fonts", [("", "Looking…")], fonts));
 
         var dialog = new ContentDialog
@@ -1528,15 +1531,14 @@ public sealed partial class MainWindow : Window
     private static StackPanel BuildPropertySection(
         string title, IReadOnlyList<(string Name, string Value)> rows, StackPanel? body = null)
     {
-        var section = new StackPanel { Spacing = 4 };
+        var section = new StackPanel { Spacing = Metric("SpaceXS") };
         section.Children.Add(new TextBlock
         {
             Text = title,
-            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
-            Opacity = 0.6,
+            Style = UiStyle("ControlTitleTextStyle"),
         });
 
-        body ??= new StackPanel { Spacing = 4 };
+        body ??= new StackPanel { Spacing = Metric("SpaceXS") };
         foreach (var (name, value) in rows)
         {
             body.Children.Add(PropertyRow(name, value));
@@ -1547,14 +1549,14 @@ public sealed partial class MainWindow : Window
 
     private static Grid PropertyRow(string name, string value)
     {
-        var row = new Grid { ColumnSpacing = 12 };
+        var row = new Grid { ColumnSpacing = Metric("SpaceM") };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
         row.Children.Add(new TextBlock
         {
             Text = name,
-            Opacity = 0.6,
+            Style = UiStyle("SecondaryTextStyle"),
             TextWrapping = TextWrapping.Wrap,
         });
 
@@ -1624,7 +1626,7 @@ public sealed partial class MainWindow : Window
         string logPath = ErrorLog.Default.Path_;
         bool haveLog = File.Exists(logPath);
 
-        var panel = new StackPanel { Spacing = 12, MinWidth = 420 };
+        var panel = new StackPanel { Spacing = Metric("SpaceM"), MinWidth = Metric("DialogWidthNormal") };
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
@@ -1633,7 +1635,7 @@ public sealed partial class MainWindow : Window
         });
 
         // Selectable, because the point is to paste this into an issue.
-        var details = new StackPanel { Spacing = 4 };
+        var details = new StackPanel { Spacing = Metric("SpaceXS") };
         foreach (var (label, value) in new (string, string)[]
         {
             ("Rune", $"{CurrentVersion} ({(IsPackaged ? "Store" : "portable")})"),
@@ -1641,8 +1643,8 @@ public sealed partial class MainWindow : Window
             ("Architecture", System.Runtime.InteropServices.RuntimeInformation.OSArchitecture.ToString()),
         })
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            row.Children.Add(new TextBlock { Text = label, Opacity = 0.6, MinWidth = 110 });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Metric("SpaceS") };
+            row.Children.Add(new TextBlock { Text = label, Style = UiStyle("SecondaryTextStyle"), MinWidth = 110 });
             row.Children.Add(new TextBlock { Text = value, IsTextSelectionEnabled = true });
             details.Children.Add(row);
         }
@@ -1651,7 +1653,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             TextWrapping = TextWrapping.Wrap,
-            Opacity = 0.7,
+            Style = UiStyle("SecondaryTextStyle"),
             Text = haveLog
                 ? $"Errors are logged to {logPath}. Attach it if the problem was a crash."
                 : $"Nothing has been logged yet. If Rune misbehaves, errors appear in {logPath}.",
@@ -1692,8 +1694,8 @@ public sealed partial class MainWindow : Window
         var sidebarCheck = new CheckBox { Content = "Show the sidebar when a document opens", IsChecked = _state.Settings.SidebarOpenByDefault };
         var vimCheck = new CheckBox { Content = "Keyboard navigation (j/k scroll, gg/G first/last page, n next hit)", IsChecked = _state.Settings.VimKeys };
 
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock { Text = "Theme", Opacity = 0.7 });
+        var panel = new StackPanel { Spacing = Metric("SpaceM") };
+        panel.Children.Add(new TextBlock { Text = "Theme", Style = UiStyle("ControlTitleTextStyle") });
         panel.Children.Add(themeBox);
         panel.Children.Add(restoreCheck);
         panel.Children.Add(sidebarCheck);
@@ -1701,8 +1703,7 @@ public sealed partial class MainWindow : Window
         panel.Children.Add(new TextBlock
         {
             Text = $"Rune {CurrentVersion}",
-            Opacity = 0.5,
-            Style = (Style)Application.Current.Resources["CaptionTextBlockStyle"],
+            Style = UiStyle("TertiaryTextStyle"),
         });
 
         var dialog = new ContentDialog
@@ -1757,7 +1758,7 @@ public sealed partial class MainWindow : Window
 
     private void ShortcutsMenuItem_Click(object sender, RoutedEventArgs e) => _ = ShowShortcutsAsync();
 
-    /// <summary>GNOME-style two-column shortcuts window, fed by <see cref="ShortcutCatalog"/>.</summary>
+    /// <summary>Two-column shortcuts window, fed by <see cref="ShortcutCatalog"/>.</summary>
     private async Task ShowShortcutsAsync()
     {
         // Fixed width rather than MinWidth: a minimum only states what the grid
@@ -1766,31 +1767,31 @@ public sealed partial class MainWindow : Window
         // the right edge — the overlay listed half its actions with no keys
         // beside them. Pinning both this and the dialog's MaxWidth means the
         // content area is known to be wider than the content.
-        var grid = new Grid { ColumnSpacing = 40, Width = 760 };
+        var grid = new Grid { ColumnSpacing = Metric("SpaceXL"), Width = Metric("DialogWidthWide") };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var columns = new[] { new StackPanel { Spacing = 20 }, new StackPanel { Spacing = 20 } };
+        var columns = new[] { new StackPanel { Spacing = Metric("SpaceL") }, new StackPanel { Spacing = Metric("SpaceL") } };
         Grid.SetColumn(columns[1], 1);
         grid.Children.Add(columns[0]);
         grid.Children.Add(columns[1]);
 
-        var strongStyle = (Style)Application.Current.Resources["BodyStrongTextBlockStyle"];
-        var captionStyle = (Style)Application.Current.Resources["CaptionTextBlockStyle"];
+        var strongStyle = UiStyle("ControlTitleTextStyle");
+        var captionStyle = UiStyle("CaptionTextStyle");
         // Styles, not brushes: resolving a theme brush here would hand light
         // mode the dark-theme fill (PROJECT.md §7).
-        var keyChipStyle = (Style)Application.Current.Resources["ShortcutKeyChipStyle"];
-        var secondaryTextStyle = (Style)Application.Current.Resources["SecondaryTextStyle"];
+        var keyChipStyle = UiStyle("ShortcutKeyChipStyle");
+        var secondaryTextStyle = UiStyle("SecondaryTextStyle");
 
         // Flow groups into whichever column is currently shorter.
         var weight = new int[2];
         foreach (var group in ShortcutCatalog.Groups)
         {
             int target = weight[0] <= weight[1] ? 0 : 1;
-            var panel = new StackPanel { Spacing = 6 };
+            var panel = new StackPanel { Spacing = Metric("SpaceS") };
             panel.Children.Add(new TextBlock { Text = group.Title, Style = strongStyle });
             foreach (var shortcut in group.Shortcuts)
             {
-                var row = new Grid { ColumnSpacing = 12 };
+                var row = new Grid { ColumnSpacing = Metric("SpaceM") };
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1834,7 +1835,7 @@ public sealed partial class MainWindow : Window
         // the overflow is clipped. That is what cut the key chips off the second
         // column. Overriding the resource on this instance is the supported way
         // to widen one dialog without touching every other.
-        dialog.Resources["ContentDialogMaxWidth"] = 880.0;
+        dialog.Resources["ContentDialogMaxWidth"] = Metric("DialogMaxWidthWide");
         await ShowDialogAsync(dialog);
     }
 
@@ -2712,7 +2713,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var panel = new StackPanel { Spacing = 12, MinWidth = 420 };
+        var panel = new StackPanel { Spacing = Metric("SpaceM"), MinWidth = Metric("DialogWidthNormal") };
 
         // This disclaimer is load-bearing, not boilerplate. Rune ships no
         // cryptography: it has not checked the certificate, the digest, trust
@@ -2724,18 +2725,18 @@ public sealed partial class MainWindow : Window
             Text = "Rune reports what the document claims. It does not verify signatures — "
                  + "the certificate, the signer's identity and revocation status are all unchecked. "
                  + "Use Adobe Acrobat or a dedicated validator to confirm a signature is genuine.",
-            Style = (Style)Application.Current.Resources["CautionTextStyle"],
+            Style = UiStyle("CautionTextStyle"),
         });
 
         foreach (var signature in signatures)
         {
-            panel.Children.Add(new Border { Style = (Style)Application.Current.Resources["FlyoutSeparatorStyle"] });
+            panel.Children.Add(new Border { Style = UiStyle("FlyoutSeparatorStyle") });
 
-            var rows = new StackPanel { Spacing = 4 };
+            var rows = new StackPanel { Spacing = Metric("SpaceXS") };
             rows.Children.Add(new TextBlock
             {
                 Text = $"Signature {signature.Index + 1}",
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                Style = UiStyle("ControlTitleTextStyle"),
             });
 
             AddSignatureRow(rows, "Reason", string.IsNullOrWhiteSpace(signature.Reason) ? "—" : signature.Reason);
@@ -2765,12 +2766,12 @@ public sealed partial class MainWindow : Window
 
     private static void AddSignatureRow(Panel parent, string label, string value)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = Metric("SpaceS") };
         row.Children.Add(new TextBlock
         {
             Text = label,
             Width = 90,
-            Style = (Style)Application.Current.Resources["SecondaryTextStyle"],
+            Style = UiStyle("SecondaryTextStyle"),
         });
         row.Children.Add(new TextBlock { Text = value, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 });
         parent.Children.Add(row);

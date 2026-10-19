@@ -147,7 +147,7 @@ public sealed partial class MainWindow
         AutomationProperties.SetName(size, "Font size");
         ToolTipService.SetToolTip(size, "Size");
 
-        var bold = new ToggleButton { Content = "B", MinWidth = 36, FontWeight = Microsoft.UI.Text.FontWeights.Bold };
+        var bold = new ToggleButton { Content = "B", MinWidth = Metric("ToolbarButtonSize"), FontWeight = Microsoft.UI.Text.FontWeights.Bold };
         bold.Click += (_, _) => Restyle(s => s with { Bold = bold.IsChecked == true });
         AutomationProperties.SetName(bold, "Bold");
         ToolTipService.SetToolTip(bold, "Bold");
@@ -155,7 +155,7 @@ public sealed partial class MainWindow
         var italic = new ToggleButton
         {
             Content = "I",
-            MinWidth = 36,
+            MinWidth = Metric("ToolbarButtonSize"),
             FontStyle = Windows.UI.Text.FontStyle.Italic,
         };
         italic.Click += (_, _) => Restyle(s => s with { Italic = italic.IsChecked == true });
@@ -172,7 +172,7 @@ public sealed partial class MainWindow
                 Text = "U",
                 TextDecorations = Windows.UI.Text.TextDecorations.Underline,
             },
-            MinWidth = 36,
+            MinWidth = Metric("ToolbarButtonSize"),
         };
         underline.Click += (_, _) => Restyle(s => s with { Underline = underline.IsChecked == true });
         AutomationProperties.SetName(underline, "Underline");
@@ -191,7 +191,7 @@ public sealed partial class MainWindow
         })
         {
             var value = align;
-            var button = new ToggleButton { Content = AlignmentIcon(value), MinWidth = 36 };
+            var button = new ToggleButton { Content = AlignmentIcon(value), MinWidth = Metric("ToolbarButtonSize") };
             button.Click += (_, _) => Restyle(s => s with { Align = value });
             AutomationProperties.SetName(button, label);
             ToolTipService.SetToolTip(button, label);

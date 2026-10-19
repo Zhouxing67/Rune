@@ -30,7 +30,8 @@ public sealed partial class MarkupAnnotationToolbar : UserControl
         {
             var button = new Button
             {
-                Width = 30, Height = 30, Padding = new Thickness(0),
+                Width = (double)Application.Current.Resources["CompactButtonSize"],
+                Height = (double)Application.Current.Resources["CompactButtonSize"], Padding = new Thickness(0),
                 Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)),
                 BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4),
                 Content = new Border

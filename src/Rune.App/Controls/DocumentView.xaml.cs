@@ -1256,7 +1256,12 @@ public sealed partial class DocumentView : UserControl
 
     private async Task RenameBookmarkAsync(BookmarkItem item)
     {
-        var box = new TextBox { Text = item.Name, SelectionStart = item.Name.Length, MinWidth = 280 };
+        var box = new TextBox
+        {
+            Text = item.Name,
+            SelectionStart = item.Name.Length,
+            MinWidth = (double)Application.Current.Resources["DialogWidthCompact"],
+        };
         var dialog = new ContentDialog
         {
             Title = "Rename bookmark",

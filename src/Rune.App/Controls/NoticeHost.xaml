@@ -19,17 +19,12 @@
          reads straight through the card. -->
     <Border
         x:Name="Card"
+        Style="{StaticResource OverlaySurfaceStyle}"
         Visibility="Collapsed"
         MaxWidth="{StaticResource NoticeMaxWidth}"
         HorizontalAlignment="Center"
         VerticalAlignment="Top"
-        Margin="16"
-        CornerRadius="{StaticResource RadiusMedium}"
-        Translation="0,0,32"
-        Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
-        <Border.Shadow>
-            <ThemeShadow />
-        </Border.Shadow>
+        Margin="16">
 
         <InfoBar
             x:Name="Bar"

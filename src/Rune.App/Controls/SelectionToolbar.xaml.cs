@@ -52,7 +52,8 @@ public sealed partial class SelectionToolbar : UserControl
         {
             var swatch = new Button
             {
-                Width = 28, Height = 28, Padding = new Thickness(0),
+                Width = (double)Application.Current.Resources["CompactButtonSize"],
+                Height = (double)Application.Current.Resources["CompactButtonSize"], Padding = new Thickness(0),
                 Background = new SolidColorBrush(Color.FromArgb(0, 0, 0, 0)), BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(5), Tag = color,
                 Content = new Border
