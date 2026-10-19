@@ -7,6 +7,9 @@ namespace Rune.Engine;
 /// </summary>
 public readonly record struct TextRect(double X, double Y, double Width, double Height);
 
+/// <summary>One physical line reconstructed from PDF character boxes.</summary>
+public sealed record PageTextLine(int Start, int Count, string Text, TextRect Bounds);
+
 /// <summary>A single occurrence of a search term on a page.</summary>
 public sealed record SearchHit(int PageIndex, int CharIndex, int Length, IReadOnlyList<TextRect> Rects);
 

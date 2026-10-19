@@ -13,11 +13,13 @@ namespace Rune.Engine;
 public sealed class PageText
 {
     private readonly TextRect[] _charBoxes;
+    private readonly PageTextLine[] _lines;
 
     public int PageIndex { get; }
     public string Text { get; }
     public int Count => _charBoxes.Length;
     public IReadOnlyList<TextRect> CharBoxes => _charBoxes;
+    public IReadOnlyList<PageTextLine> Lines => _lines;
 
     public PageText(int pageIndex, string text, TextRect[] charBoxes)
     {
@@ -30,6 +32,7 @@ public sealed class PageText
                 ? text[..charBoxes.Length]
                 : text.PadRight(charBoxes.Length);
         _charBoxes = charBoxes;
+        _lines = BuildLines(Text, charBoxes);
     }
 
     public static PageText Empty(int pageIndex) => new(pageIndex, string.Empty, []);
@@ -130,5 +133,62 @@ public sealed class PageText
         double overlap = Math.Min(bottomA, bottomB) - Math.Max(topA, topB);
         double minHeight = Math.Min(bottomA - topA, bottomB - topB);
         return minHeight > 0 && overlap >= minHeight * 0.5;
+    }
+
+    private static PageTextLine[] BuildLines(string text, TextRect[] boxes)
+    {
+        var lines = new List<PageTextLine>();
+        int start = -1, end = -1;
+        double x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+        void Flush()
+        {
+            if (start < 0 || end < start) return;
+            string lineText = text.Substring(start, end - start + 1).Trim();
+            if (lineText.Length > 0)
+            {
+                lines.Add(new PageTextLine(start, end - start + 1, lineText,
+                    new TextRect(x1, y1, x2 - x1, y2 - y1)));
+            }
+            start = end = -1;
+        }
+
+        for (int i = 0; i < boxes.Length; i++)
+        {
+            var box = boxes[i];
+            bool explicitBreak = i < text.Length && (text[i] == '\r' || text[i] == '\n');
+            if (explicitBreak)
+            {
+                Flush();
+                continue;
+            }
+            if (box.Width <= 0 || box.Height <= 0) continue;
+
+            if (start >= 0)
+            {
+                double horizontalGap = box.X - x2;
+                double gapLimit = Math.Max(36, (y2 - y1) * 4);
+                if (!VerticalOverlap(y1, y2, box.Y, box.Y + box.Height) || horizontalGap > gapLimit)
+                {
+                    Flush();
+                }
+            }
+
+            if (start < 0)
+            {
+                start = end = i;
+                (x1, y1, x2, y2) = (box.X, box.Y, box.X + box.Width, box.Y + box.Height);
+            }
+            else
+            {
+                end = i;
+                x1 = Math.Min(x1, box.X);
+                y1 = Math.Min(y1, box.Y);
+                x2 = Math.Max(x2, box.X + box.Width);
+                y2 = Math.Max(y2, box.Y + box.Height);
+            }
+        }
+        Flush();
+        return [.. lines];
     }
 }

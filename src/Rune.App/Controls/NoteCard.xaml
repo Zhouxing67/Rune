@@ -3,9 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Width="{StaticResource NoteCardWidth}" KeyDown="Root_KeyDown">
-    <Border Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}" BorderThickness="1"
-            CornerRadius="{StaticResource RadiusMedium}" Padding="14">
+    <Border Style="{StaticResource OverlayCardSurfaceStyle}">
         <Grid RowSpacing="10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

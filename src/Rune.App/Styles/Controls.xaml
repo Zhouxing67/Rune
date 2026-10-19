@@ -56,6 +56,15 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusPill}" />
     </Style>
 
+    <!-- Shared rectangular card for document overlays (notes, citations). -->
+    <Style x:Key="OverlayCardSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusMedium}" />
+        <Setter Property="Padding" Value="14" />
+    </Style>
+
     <Style x:Key="OverlayIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
         <Setter Property="Width" Value="{StaticResource OverlayButtonSize}" />
         <Setter Property="Height" Value="{StaticResource OverlayButtonSize}" />

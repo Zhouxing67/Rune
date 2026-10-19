@@ -4,32 +4,27 @@ namespace Rune.Engine;
 
 public sealed record ReferencePreview(string Text, string? Uri, string? Doi);
 
-/// <summary>Extracts one bibliography entry around a PDF destination.</summary>
+/// <summary>
+/// Extracts one bibliography entry around an internal-link target. Geometry is
+/// authoritative: the target maps to a physical line, then markers, vertical
+/// gaps and hanging indents delimit the entry.
+/// </summary>
 public static partial class ReferenceExtractor
 {
-    private const int MaxEntryLength = 1400;
+    private const int MaxEntryLines = 18;
 
     public static ReferencePreview? Extract(PageText page, double? targetX, double? targetY)
     {
-        if (string.IsNullOrWhiteSpace(page.Text))
-        {
-            return null;
-        }
+        // A page-only destination cannot identify one reference reliably.
+        if (targetY is null || page.Lines.Count == 0) return null;
 
-        int anchor = FindAnchor(page, targetX, targetY);
-        string text = page.Text;
-        int start = FindEntryStart(text, anchor);
-        int end = FindEntryEnd(text, start);
-        if (end <= start)
-        {
-            return null;
-        }
+        int anchor = FindAnchorLine(page.Lines, targetX, targetY.Value);
+        int start = FindEntryStart(page.Lines, anchor);
+        int end = FindEntryEnd(page.Lines, start);
+        if (end < start) return null;
 
-        string entry = Cleanup(text[start..Math.Min(end, start + MaxEntryLength)]);
-        if (entry.Length < 8)
-        {
-            return null;
-        }
+        string entry = Cleanup(string.Join("\n", page.Lines.Skip(start).Take(end - start + 1).Select(line => line.Text)));
+        if (entry.Length < 8) return null;
 
         string? doi = DoiRegex().Match(entry) is { Success: true } doiMatch
             ? doiMatch.Groups[1].Value.TrimEnd('.', ',', ';', ')', ']')
@@ -40,24 +35,17 @@ public static partial class ReferenceExtractor
         return new ReferencePreview(entry, uri, doi);
     }
 
-    private static int FindAnchor(PageText page, double? targetX, double? targetY)
+    private static int FindAnchorLine(IReadOnlyList<PageTextLine> lines, double? x, double y)
     {
-        if (targetY is null)
-        {
-            return 0;
-        }
-
         int best = 0;
         double bestScore = double.MaxValue;
-        for (int i = 0; i < page.CharBoxes.Count; i++)
+        for (int i = 0; i < lines.Count; i++)
         {
-            var box = page.CharBoxes[i];
-            if (box.Width <= 0 || box.Height <= 0) continue;
-            double dy = targetY.Value < box.Y ? box.Y - targetY.Value
-                : targetY.Value > box.Y + box.Height ? targetY.Value - box.Y - box.Height : 0;
-            double dx = targetX is null ? 0 : targetX.Value < box.X ? box.X - targetX.Value
-                : targetX.Value > box.X + box.Width ? targetX.Value - box.X - box.Width : 0;
-            double score = dy * 4 + dx;
+            var box = lines[i].Bounds;
+            double dy = y < box.Y ? box.Y - y : y > box.Y + box.Height ? y - box.Y - box.Height : 0;
+            double dx = x is null ? 0 : x.Value < box.X ? box.X - x.Value
+                : x.Value > box.X + box.Width ? x.Value - box.X - box.Width : 0;
+            double score = dy * 12 + dx; // Y selects the row; X disambiguates columns.
             if (score < bestScore)
             {
                 bestScore = score;
@@ -67,31 +55,52 @@ public static partial class ReferenceExtractor
         return best;
     }
 
-    private static int FindEntryStart(string text, int anchor)
+    private static int FindEntryStart(IReadOnlyList<PageTextLine> lines, int anchor)
     {
-        int floor = Math.Max(0, anchor - 700);
-        int result = -1;
-        for (Match match = EntryMarkerRegex().Match(text, floor);
-             match.Success && match.Index <= anchor;
-             match = match.NextMatch())
+        if (IsEntryStart(lines[anchor].Text) || LooksLikeAuthorYear(lines[anchor].Text)) return anchor;
+
+        double currentX = lines[anchor].Bounds.X;
+        double medianHeight = MedianHeight(lines, anchor);
+        for (int i = anchor - 1; i >= Math.Max(0, anchor - MaxEntryLines); i--)
         {
-            result = match.Index;
+            if (IsEntryStart(lines[i].Text) || LooksLikeAuthorYear(lines[i].Text)) return i;
+            if (IsLargeGap(lines[i], lines[i + 1], medianHeight)) return i + 1;
+            if (lines[i].Bounds.X + IndentThreshold(lines[i]) < currentX) return i;
+            currentX = Math.Min(currentX, lines[i].Bounds.X);
         }
-        if (result >= 0) return result;
-
-        int paragraph = text.LastIndexOf("\n\n", Math.Clamp(anchor, 0, text.Length - 1), StringComparison.Ordinal);
-        return paragraph >= 0 ? paragraph + 2 : Math.Max(0, text.LastIndexOf('\n', Math.Clamp(anchor, 0, text.Length - 1)) + 1);
+        return anchor;
     }
 
-    private static int FindEntryEnd(string text, int start)
+    private static int FindEntryEnd(IReadOnlyList<PageTextLine> lines, int start)
     {
-        int searchAt = Math.Min(text.Length, start + 1);
-        Match next = EntryMarkerRegex().Match(text, searchAt);
-        int markerEnd = next.Success ? next.Index : text.Length;
-        int paragraph = text.IndexOf("\n\n", searchAt, StringComparison.Ordinal);
-        int paragraphEnd = paragraph >= 0 ? paragraph : text.Length;
-        return Math.Min(markerEnd, paragraphEnd);
+        double medianHeight = MedianHeight(lines, start);
+        int limit = Math.Min(lines.Count - 1, start + MaxEntryLines - 1);
+        for (int i = start + 1; i <= limit; i++)
+        {
+            if (IsEntryStart(lines[i].Text) || LooksLikeAuthorYear(lines[i].Text) ||
+                IsLargeGap(lines[i - 1], lines[i], medianHeight)) return i - 1;
+        }
+        return limit;
     }
+
+    private static bool IsLargeGap(PageTextLine before, PageTextLine after, double medianHeight)
+    {
+        double gap = after.Bounds.Y - (before.Bounds.Y + before.Bounds.Height);
+        // Normal PDF line leading is commonly close to one glyph height. Only
+        // treat substantially larger whitespace as a paragraph separator.
+        return gap > Math.Max(6, medianHeight * 1.35);
+    }
+
+    private static double MedianHeight(IReadOnlyList<PageTextLine> lines, int around)
+    {
+        var heights = lines.Skip(Math.Max(0, around - 4)).Take(9)
+            .Select(line => line.Bounds.Height).Where(height => height > 0).Order().ToArray();
+        return heights.Length == 0 ? 10 : heights[heights.Length / 2];
+    }
+
+    private static double IndentThreshold(PageTextLine line) => Math.Max(5, line.Bounds.Height * 0.55);
+    private static bool IsEntryStart(string text) => EntryMarkerRegex().IsMatch(text);
+    private static bool LooksLikeAuthorYear(string text) => AuthorYearRegex().IsMatch(text);
 
     private static string Cleanup(string value)
     {
@@ -100,8 +109,11 @@ public static partial class ReferenceExtractor
         return value.Trim();
     }
 
-    [GeneratedRegex(@"(?m)^\s*(?:\[\s*\d{1,4}\s*\]|\d{1,4}[.)])\s+")]
+    [GeneratedRegex(@"^\s*(?:\[\s*\d{1,4}\s*\]|\d{1,4}[.)])\s+")]
     private static partial Regex EntryMarkerRegex();
+
+    [GeneratedRegex(@"^[A-ZÀ-ÖØ-Þ][^\n]{0,180}?(?:\(\s*)?(?:18|19|20)\d{2}[a-z]?\)?[.,]")]
+    private static partial Regex AuthorYearRegex();
 
     [GeneratedRegex(@"-\s*\r?\n\s*")]
     private static partial Regex HyphenatedBreakRegex();

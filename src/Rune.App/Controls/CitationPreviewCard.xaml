@@ -2,43 +2,37 @@
     x:Class="Rune.Controls.CitationPreviewCard"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Width="420">
-    <Border Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
-            BorderBrush="{ThemeResource SurfaceStrokeColorDefaultBrush}"
-            BorderThickness="1" CornerRadius="8" Padding="14">
-        <Grid RowSpacing="10">
+    Width="{StaticResource CitationCardWidth}">
+    <Border Style="{StaticResource OverlayCardSurfaceStyle}">
+        <Grid RowSpacing="8">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <Grid ColumnSpacing="8">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE82D;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                    <TextBlock Text="Reference preview" Style="{StaticResource BodyStrongTextBlockStyle}" />
-                </StackPanel>
-                <Button Grid.Column="1" Width="30" Height="30" Padding="0"
-                        Background="Transparent" BorderThickness="0"
-                        Click="Close_Click" ToolTipService.ToolTip="Close">
+            <Grid>
+                <TextBlock Text="Reference" Style="{StaticResource BodyStrongTextBlockStyle}"
+                           VerticalAlignment="Center" />
+                <Button HorizontalAlignment="Right" Style="{StaticResource IconButtonStyle}"
+                        Click="Close_Click" AutomationProperties.Name="Close reference preview"
+                        ToolTipService.ToolTip="Close">
                     <FontIcon Glyph="&#xE711;" FontSize="12" />
                 </Button>
             </Grid>
 
-            <ScrollViewer Grid.Row="1" MaxHeight="210" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer Grid.Row="1" MaxHeight="168" VerticalScrollBarVisibility="Auto">
                 <TextBlock x:Name="ReferenceText" TextWrapping="WrapWholeWords"
-                           IsTextSelectionEnabled="True" LineHeight="21" />
+                           IsTextSelectionEnabled="True" FontSize="13" LineHeight="18" />
             </ScrollViewer>
 
             <Grid Grid.Row="2">
                 <TextBlock x:Name="PageLabel" VerticalAlignment="Center" FontSize="12"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="6">
-                    <Button x:Name="OpenLinkButton" Content="Open link" Click="OpenLink_Click" Visibility="Collapsed" />
-                    <Button Content="Go to reference" Style="{StaticResource AccentButtonStyle}" Click="GoTo_Click" />
+                    <Button x:Name="OpenLinkButton" Content="Open" Click="OpenLink_Click"
+                            Visibility="Collapsed" MinHeight="32" Padding="10,4" />
+                    <Button Content="Go to" Style="{StaticResource AccentButtonStyle}"
+                            Click="GoTo_Click" MinHeight="32" Padding="10,4" />
                 </StackPanel>
             </Grid>
         </Grid>
