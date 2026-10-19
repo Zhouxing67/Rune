@@ -396,7 +396,10 @@
             <!-- Easy PDF-inspired home workspace: actions on the left, compact
                  recent documents on the right. Rune has no separate page
                  organizer, so that reference-only entry is intentionally absent. -->
-            <Grid x:Name="StartPage" Padding="72,54,72,44">
+            <Grid x:Name="StartPage"
+                  MaxWidth="1728"
+                  Margin="0,72,0,60"
+                  HorizontalAlignment="Stretch">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
@@ -404,20 +407,20 @@
                 </Grid.RowDefinitions>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="360" />
-                    <ColumnDefinition Width="72" />
+                    <ColumnDefinition Width="88" />
                     <ColumnDefinition Width="*" MinWidth="360" />
                 </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="18" Margin="0,0,0,44">
+                <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Spacing="20" Margin="0,0,0,56">
                     <Image Source="/Assets/Square150x150Logo.scale-100.png" Width="64" Height="64" />
                     <StackPanel VerticalAlignment="Center" Spacing="2">
-                        <TextBlock Text="Rune" FontSize="32" FontWeight="SemiBold" />
+                        <TextBlock Text="Rune" FontSize="30" FontWeight="SemiBold" />
                         <TextBlock Text="{x:Bind VersionLabel}" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Row="1" Grid.Column="0" Spacing="8">
-                    <TextBlock Text="Get started" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,12" />
+                    <TextBlock Text="Get started" FontSize="20" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,18" />
                     <Button Height="88" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                             Style="{StaticResource AccentButtonStyle}" Click="OpenButton_Click">
                         <Grid Padding="12,0">
@@ -433,7 +436,7 @@
                     <Button Height="84" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                            CornerRadius="5" Click="SettingsButton_Click">
+                            CornerRadius="6" Click="SettingsButton_Click">
                         <Grid Padding="12,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <FontIcon Glyph="&#xE713;" FontSize="27" VerticalAlignment="Center" Margin="0,0,20,0" />
@@ -445,10 +448,10 @@
                     </Button>
                 </StackPanel>
 
-                <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2">
+                <Grid Grid.Row="1" Grid.Column="2">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock x:Name="RecentsHeader" Text="Recently opened" FontSize="20"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,136,0,20" />
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="4,0,0,18" />
                     <ListView x:Name="RecentThumbs" Grid.Row="1" SelectionMode="None" IsItemClickEnabled="True"
                               ItemClick="RecentThumbs_ItemClick" HorizontalContentAlignment="Stretch">
                         <ListView.ItemContainerStyle>
@@ -456,24 +459,35 @@
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                                 <Setter Property="Padding" Value="0" />
                                 <Setter Property="Margin" Value="0,0,0,8" />
-                                <Setter Property="CornerRadius" Value="5" />
+                                <Setter Property="MinHeight" Value="0" />
+                                <Setter Property="Background" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="CornerRadius" Value="6" />
                             </Style>
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="controls:RecentCard">
-                                <Grid Height="86" Padding="20,0,10,0" RightTapped="RecentCard_RightTapped">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                                    <FontIcon Glyph="&#xE8A5;" FontSize="27" VerticalAlignment="Center" Margin="0,0,20,0" />
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                        <TextBlock Text="{x:Bind DisplayName}" FontSize="15" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                        <TextBlock Text="{x:Bind LastOpenedText}" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                                    </StackPanel>
-                                    <Button Grid.Column="2" Width="40" Height="40" Background="Transparent" BorderThickness="0"
-                                            Click="RecentRemoveButton_Click" ToolTipService.ToolTip="Remove from recents"
-                                            AutomationProperties.Name="Remove from recents">
-                                        <FontIcon Glyph="&#xE711;" FontSize="14" />
-                                    </Button>
-                                </Grid>
+                                <Border Height="86"
+                                        Padding="20,0,10,0"
+                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        RightTapped="RecentCard_RightTapped">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <FontIcon Glyph="&#xE8A5;" FontSize="27" VerticalAlignment="Center" Margin="0,0,20,0" />
+                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                            <TextBlock Text="{x:Bind DisplayName}" FontSize="15" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                            <TextBlock Text="{x:Bind LastOpenedText}" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Width="40" Height="40" Background="Transparent" BorderThickness="0"
+                                                Click="RecentRemoveButton_Click" ToolTipService.ToolTip="Remove from recents"
+                                                AutomationProperties.Name="Remove from recents">
+                                            <FontIcon Glyph="&#xE711;" FontSize="14" />
+                                        </Button>
+                                    </Grid>
+                                </Border>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
@@ -487,7 +501,7 @@
                     </StackPanel>
                 </Grid>
 
-                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Spacing="18">
+                <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Spacing="14" Margin="0,48,0,0">
                     <TextBlock Text="Rune — open-source Windows PDF reader" FontSize="13" />
                     <TextBlock Text="Built with .NET, WinUI 3 and PDFium" FontSize="13"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
