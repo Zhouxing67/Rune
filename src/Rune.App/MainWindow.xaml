@@ -47,16 +47,10 @@
                     x:Name="HomeButton"
                     Click="HomeButton_Click"
                     VerticalAlignment="Center"
-                    Margin="8,0,4,0"
+                    Margin="0,0,4,0"
                     Style="{StaticResource HomeButtonStyle}"
                     AutomationProperties.Name="Home" ToolTipService.ToolTip="Home — recent documents">
-                    <StackPanel Orientation="Horizontal" Spacing="7">
-                        <Image Source="/Assets/Square44x44Logo.scale-100.png" Width="18" Height="18" />
-                        <TextBlock Text="Rune" VerticalAlignment="Center"
-                                   Style="{StaticResource CaptionTextBlockStyle}"
-                                   FontWeight="SemiBold"
-                                   Foreground="White" />
-                    </StackPanel>
+                    <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource IconGlyphSize}" Foreground="White" />
                 </Button>
             </TabView.TabStripHeader>
             <TabView.TabStripFooter>

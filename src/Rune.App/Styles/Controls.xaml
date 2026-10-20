@@ -94,13 +94,13 @@
     <!-- The Home wordmark is Rune's red brand anchor within the otherwise
          blue-accented reader chrome. -->
     <Style x:Key="HomeButtonStyle" TargetType="Button">
-        <Setter Property="MinHeight" Value="{StaticResource TouchTargetMin}" />
-        <Setter Property="MinWidth" Value="{StaticResource TouchTargetMin}" />
-        <Setter Property="Padding" Value="10,2" />
+        <Setter Property="Width" Value="{StaticResource HeaderHeight}" />
+        <Setter Property="Height" Value="{StaticResource HeaderHeight}" />
+        <Setter Property="Padding" Value="0" />
         <Setter Property="Background" Value="{ThemeResource HomeButtonBackgroundBrush}" />
         <Setter Property="Foreground" Value="White" />
         <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+        <Setter Property="CornerRadius" Value="{StaticResource HomeButtonCornerRadius}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="Template">
@@ -370,6 +370,14 @@
     <Style x:Key="CaptionTextStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="{StaticResource TextCaptionSize}" />
         <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Style>
+
+    <!-- Page numbers are primary navigation metadata in the outline, not a
+         low-emphasis caption. Keep the column compact but visibly accented. -->
+    <Style x:Key="OutlinePageTextStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="{StaticResource TextSecondarySize}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
     </Style>
 
     <!-- A limitation or warning the reader must not skim past. -->

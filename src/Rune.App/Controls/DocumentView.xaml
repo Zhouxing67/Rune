@@ -87,7 +87,7 @@
                                     <TextBlock Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center"
                                                Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right"
-                                               Text="{x:Bind PageLabel}" Style="{StaticResource CaptionTextStyle}" />
+                                               Text="{x:Bind PageLabel}" Style="{StaticResource OutlinePageTextStyle}" />
                                 </Grid>
                             </TreeViewItem>
                         </DataTemplate>
