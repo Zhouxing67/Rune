@@ -81,16 +81,12 @@
                                      presenter, so the right-hand page column was clipped. -->
                                 <Grid HorizontalAlignment="Stretch">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="3" />
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="{StaticResource OutlinePageWidth}" />
                                     </Grid.ColumnDefinitions>
-                                    <Border Grid.Column="0" Width="3" Height="22" CornerRadius="2"
-                                            Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                            Visibility="{x:Bind IsCurrent, Mode=OneWay}" />
-                                    <TextBlock Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="0" Margin="10,0,8,0" VerticalAlignment="Center"
                                                Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="2" Margin="0,0,8,0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" HorizontalAlignment="Right"
                                                Text="{x:Bind PageLabel}" Style="{StaticResource OutlinePageTextStyle}" />
                                 </Grid>
                             </TreeViewItem>
