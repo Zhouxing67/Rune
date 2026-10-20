@@ -9,10 +9,7 @@ public sealed record SavedSignature(string Path, byte[] Bgra, int Width, int Hei
 /// <summary>
 /// Keeps drawn and imported signatures on disk so they can be reused.
 ///
-/// Lives in its own <c>%LOCALAPPDATA%\Rune\signatures</c> directory, NOT
-/// alongside the homepage thumbnails: that folder deletes everything past the
-/// newest 24 files after every render (ThumbnailCache.Prune), which would
-/// silently eat saved signatures.
+    /// Lives in its own <c>%LOCALAPPDATA%\Rune\signatures</c> directory.
 ///
 /// These are personal data — a picture of the user's handwriting — so they
 /// never leave the device and are enumerated in PRIVACY.md.
@@ -139,8 +136,7 @@ public sealed class SignatureStore
 
         // Straight, NOT Ignore. Ignore flattens exactly the transparency a
         // signature is made of, and would stamp an opaque white box over
-        // the page. (ThumbnailCache.EncodePng uses Ignore because a page
-        // render is opaque by construction — don't copy it here.)
+        // the page.
         var pixels = await decoder.GetPixelDataAsync(
             BitmapPixelFormat.Bgra8,
             BitmapAlphaMode.Straight,

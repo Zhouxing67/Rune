@@ -74,6 +74,16 @@ public class ReferenceExtractorTests
         Assert.Null(ReferenceExtractor.Extract(page, null, null));
     }
 
+    [Fact]
+    public void Extract_InternalCrossReferenceDoesNotPretendToBeBibliography()
+    {
+        const string text = "Figure 4. Model architecture and training flow.\n" +
+                            "The encoder output is passed to the decoder.";
+        var page = new PageText(0, text, BoxesForLines(text));
+
+        Assert.Null(ReferenceExtractor.Extract(page, 10, 10));
+    }
+
     private static TextRect[] BoxesForLines(string text, double[]? indents = null)
     {
         var boxes = new TextRect[text.Length];

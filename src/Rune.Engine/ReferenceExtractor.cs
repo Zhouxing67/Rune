@@ -20,6 +20,11 @@ public static partial class ReferenceExtractor
 
         int anchor = FindAnchorLine(page.Lines, targetX, targetY.Value);
         int start = FindEntryStart(page.Lines, anchor);
+        // Geometry can tell us which line an internal destination points at,
+        // but it cannot prove that the destination is a bibliography entry.
+        // Require a recognizable entry start instead of turning TOC, figure,
+        // equation and footnote links into convincing-looking references.
+        if (start < 0) return null;
         int end = FindEntryEnd(page.Lines, start);
         if (end < start) return null;
 
@@ -64,11 +69,11 @@ public static partial class ReferenceExtractor
         for (int i = anchor - 1; i >= Math.Max(0, anchor - MaxEntryLines); i--)
         {
             if (IsEntryStart(lines[i].Text) || LooksLikeAuthorYear(lines[i].Text)) return i;
-            if (IsLargeGap(lines[i], lines[i + 1], medianHeight)) return i + 1;
-            if (lines[i].Bounds.X + IndentThreshold(lines[i]) < currentX) return i;
+            if (IsLargeGap(lines[i], lines[i + 1], medianHeight)) return -1;
+            if (lines[i].Bounds.X + IndentThreshold(lines[i]) < currentX) return -1;
             currentX = Math.Min(currentX, lines[i].Bounds.X);
         }
-        return anchor;
+        return -1;
     }
 
     private static int FindEntryEnd(IReadOnlyList<PageTextLine> lines, int start)

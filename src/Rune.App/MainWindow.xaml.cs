@@ -313,7 +313,6 @@ public sealed partial class MainWindow : Window
             ActivePath = CurrentView?.FilePath,
         };
         _store.Save(_state);
-        _thumbnails.Dispose(); // stops the homepage cache's PDFium thread
     }
 
     private void CaptureState(DocumentView view)
@@ -360,6 +359,7 @@ public sealed partial class MainWindow : Window
         view.SignaturesRead += (_, _) => UpdateToolbarForActive();
         view.Viewer.NoteRequested += Viewer_NoteRequested;
         view.Viewer.FormAppearanceRequested += Viewer_FormAppearanceRequested;
+        view.Viewer.OperationFailed += Viewer_OperationFailed;
         AttachTextTool(view.Viewer);
         view.BookmarksChanged += (_, _) => PersistBookmarks(view);
         view.PagesEdited += (_, _) =>
@@ -659,6 +659,7 @@ public sealed partial class MainWindow : Window
             view.Viewer.LinkActivated -= Viewer_LinkActivated;
             view.Viewer.NoteRequested -= Viewer_NoteRequested;
             view.Viewer.FormAppearanceRequested -= Viewer_FormAppearanceRequested;
+            view.Viewer.OperationFailed -= Viewer_OperationFailed;
             DetachTextTool(view.Viewer);
             view.Close();
             _pendingRestore.Remove(view);
@@ -787,6 +788,9 @@ public sealed partial class MainWindow : Window
     {
         if (_activeViewer is not null)
         {
+            // Search belongs to the visible document. Never leave highlights
+            // painted in a background tab after focus moves elsewhere.
+            _activeViewer.ClearSearch();
             _activeViewer.CurrentPageChanged -= Viewer_CurrentPageChanged;
             _activeViewer.ZoomChanged -= Viewer_ZoomChanged;
             _activeViewer.InkStrokeStarted -= Viewer_InkStrokeStarted;
@@ -834,6 +838,8 @@ public sealed partial class MainWindow : Window
     }
 
     private void Viewer_HistoryChanged(object? sender, EventArgs e) => UpdateHistoryButtons();
+
+    private void Viewer_OperationFailed(object? sender, string message) => ShowError(message);
 
     private void UpdateHistoryButtons()
     {
@@ -1930,9 +1936,7 @@ public sealed partial class MainWindow : Window
 
     // ---------------------------------------------------------------- recents
 
-    private readonly ThumbnailCache _thumbnails = new();
-
-    /// <summary>How many cards the homepage grid shows (page-1 thumbnails are cached to disk).</summary>
+    /// <summary>How many recent-document cards the homepage shows.</summary>
     private const int MaxRecentCards = 18;
 
     private void PopulateRecents()
@@ -1955,37 +1959,8 @@ public sealed partial class MainWindow : Window
         }
 
         _state.ForgetRecent(card.Path);
-        _thumbnails.Forget(card.Path);
         _store.Save(_state);
         PopulateRecents();
-    }
-
-    private async Task LoadThumbnailAsync(RecentCard card)
-    {
-        byte[]? png = await _thumbnails.GetAsync(card.Path);
-        if (png is null)
-        {
-            return;
-        }
-        // Decode on the UI thread into a BitmapImage.
-        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
-        using (var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream())
-        {
-            using (var writer = new Windows.Storage.Streams.DataWriter(stream))
-            {
-                writer.WriteBytes(png);
-                await writer.StoreAsync();
-                await writer.FlushAsync();
-                writer.DetachStream();
-            }
-            stream.Seek(0);
-            await bitmap.SetSourceAsync(stream);
-        }
-        // The card sizes its page box from the bitmap's pixel dimensions, which
-        // are only known once decoding finishes. SetSourceAsync normally
-        // completes after decode; re-assign on ImageOpened in case it doesn't.
-        bitmap.ImageOpened += (_, _) => card.Thumbnail = bitmap;
-        card.Thumbnail = bitmap;
     }
 
     private void RecentThumbs_ItemClick(object sender, ItemClickEventArgs e)
@@ -1999,7 +1974,8 @@ public sealed partial class MainWindow : Window
             else
             {
                 ShowError($"File not found: {card.Path}");
-                _state.Recents.RemoveAll(r => r.Path == card.Path);
+                _state.ForgetRecent(card.Path);
+                _store.Save(_state);
                 PopulateRecents();
             }
         }
@@ -2033,7 +2009,6 @@ public sealed partial class MainWindow : Window
         forget.Click += (_, _) =>
         {
             _state.ForgetRecent(card.Path);
-            _thumbnails.Forget(card.Path);
             _store.Save(_state);
             PopulateRecents();
         };
@@ -2042,7 +2017,6 @@ public sealed partial class MainWindow : Window
         forgetAll.Click += (_, _) =>
         {
             _state.ForgetAllRecents();
-            _thumbnails.ForgetAll();
             _store.Save(_state);
             PopulateRecents();
         };

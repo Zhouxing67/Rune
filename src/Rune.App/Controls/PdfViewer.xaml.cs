@@ -1,4 +1,5 @@
 using Rune.Engine;
+using Rune.Services;
 using Rune.Styles;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.UI.Xaml;
@@ -169,6 +170,15 @@ public sealed partial class PdfViewer : UserControl
 
     /// <summary>Raised after any annotation edit (dirty state changed).</summary>
     public event EventHandler? DocumentEdited;
+
+    /// <summary>A user-initiated PDF edit failed and needs visible shell feedback.</summary>
+    public event EventHandler<string>? OperationFailed;
+
+    private void ReportOperationFailure(string context, string message, Exception exception)
+    {
+        ErrorLog.Default.Write(context, exception);
+        OperationFailed?.Invoke(this, $"{message}: {exception.Message}");
+    }
 
     /// <summary>Raised when night mode toggles, so sidebar thumbnails can re-render inverted.</summary>
 
@@ -2148,7 +2158,11 @@ public sealed partial class PdfViewer : UserControl
             annotations = await _scheduler.RunAsync(PdfWorkPriority.Interactive,
                 () => document.GetAnnotations(page));
         }
-        catch { return; }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("InspectAnnotations", "Couldn't inspect annotations", ex);
+            return;
+        }
         if (_document != document) return;
         var hit = HitTestAnnotation(annotations, local.X, local.Y);
         if (hit is not null && IsTextMarkup(hit.Subtype))
@@ -2195,7 +2209,11 @@ public sealed partial class PdfViewer : UserControl
             await _scheduler.RunAsync(PdfWorkPriority.Interactive,
                 () => document.SetAnnotationContents(open.Page, open.Info.Index, text));
         }
-        catch { return; }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("EditNote", "Couldn't save the note", ex);
+            return;
+        }
         if (_document != document) return;
         InvalidatePage(open.Page);
         DocumentEdited?.Invoke(this, EventArgs.Empty);
@@ -2222,7 +2240,11 @@ public sealed partial class PdfViewer : UserControl
                 return captured;
             });
         }
-        catch { return; }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("DeleteNote", "Couldn't delete the note", ex);
+            return;
+        }
         if (_document != document) return;
         InvalidatePage(open.Page);
         DocumentEdited?.Invoke(this, EventArgs.Empty);
@@ -2283,7 +2305,11 @@ public sealed partial class PdfViewer : UserControl
                     return captured;
                 });
             }
-            catch { return; }
+            catch (Exception ex)
+            {
+                ReportOperationFailure("DeleteMarkup", "Couldn't delete the markup", ex);
+                return;
+            }
             if (_document != document) return;
             InvalidatePage(open.Page);
             DocumentEdited?.Invoke(this, EventArgs.Empty);
@@ -2309,7 +2335,11 @@ public sealed partial class PdfViewer : UserControl
             newIndex = await _scheduler.RunAsync(PdfWorkPriority.Interactive,
                 () => document.SetAnnotationColor(open.Page, open.Info.Index, color.R, color.G, color.B, alpha));
         }
-        catch { return; }
+        catch (Exception ex)
+        {
+            ReportOperationFailure("ChangeMarkupColour", "Couldn't change the markup colour", ex);
+            return;
+        }
         if (_document != document) return;
         InvalidatePage(open.Page);
         DocumentEdited?.Invoke(this, EventArgs.Empty);
