@@ -25,6 +25,7 @@
                     Grid.Row="0"
                     SelectionMode="Extended"
                     Padding="8,8"
+                    ItemContainerStyle="{StaticResource ThumbnailListItemStyle}"
                     CanDragItems="True"
                     CanReorderItems="True"
                     AllowDrop="True"
@@ -35,12 +36,6 @@
                     Drop="ThumbList_Drop"
                     RightTapped="ThumbList_RightTapped"
                     KeyDown="ThumbList_KeyDown">
-                    <ListView.Resources>
-                        <!-- Selection belongs to the page card, not to an unrelated
-                             strip at the far edge of the sidebar. Multi-selection
-                             still keeps the standard row background. -->
-                        <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
-                    </ListView.Resources>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="controls:ThumbnailItem">
                             <StackPanel HorizontalAlignment="Center" Spacing="4" Padding="0,6">
