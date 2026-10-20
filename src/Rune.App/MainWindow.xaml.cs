@@ -49,6 +49,9 @@ public sealed partial class MainWindow : Window
     private CancellationTokenSource? _searchCts;
     private List<SearchHit> _searchHits = [];
     private int _activeHitIndex = -1;
+    private string? _executedSearchQuery;
+    private bool _executedSearchMatchCase;
+    private PdfViewer? _executedSearchViewer;
 
     private PrintService? _printService;
     private ShareService? _shareService;
@@ -814,10 +817,12 @@ public sealed partial class MainWindow : Window
             Title = $"{name} — Rune";
         }
 
-        // Re-run any active search against the newly-focused document.
+        // A query belongs to the document on which Enter executed it. Switching
+        // tabs invalidates that execution; keep the text so the user can press
+        // Enter to run it in the new document.
         if (FindBar.Visibility == Visibility.Visible)
         {
-            RunSearch();
+            ResetSearchState(showPrompt: true);
         }
     }
 
@@ -2390,10 +2395,7 @@ public sealed partial class MainWindow : Window
         }
         FindBox.Focus(FocusState.Programmatic);
         FindBox.SelectAll();
-        if (!string.IsNullOrEmpty(FindBox.Text))
-        {
-            RunSearch();
-        }
+        ResetSearchState(showPrompt: !string.IsNullOrWhiteSpace(FindBox.Text));
     }
 
     private void HideFindBar()
@@ -2403,6 +2405,11 @@ public sealed partial class MainWindow : Window
             return;
         }
         FindBar.Visibility = Visibility.Collapsed;
+        ResetSearchState(showPrompt: false);
+    }
+
+    private void ResetSearchState(bool showPrompt)
+    {
         _searchCts?.Cancel();
         _searchCts?.Dispose();
         _searchCts = null;
@@ -2410,12 +2417,18 @@ public sealed partial class MainWindow : Window
         _searchHits = [];
         FindResultsList.ItemsSource = null;
         _activeHitIndex = -1;
-        FindCount.Text = "";
+        _executedSearchQuery = null;
+        _executedSearchViewer = null;
+        FindPrev.IsEnabled = false;
+        FindNext.IsEnabled = false;
+        FindCount.Text = showPrompt ? "Press Enter" : "";
     }
 
     private void FindClose_Click(object sender, RoutedEventArgs e) => HideFindBar();
-    private void FindBox_TextChanged(object sender, TextChangedEventArgs e) => RunSearch();
-    private void MatchCase_Click(object sender, RoutedEventArgs e) => RunSearch();
+    private void FindBox_TextChanged(object sender, TextChangedEventArgs e) =>
+        ResetSearchState(showPrompt: !string.IsNullOrWhiteSpace(FindBox.Text));
+    private void MatchCase_Click(object sender, RoutedEventArgs e) =>
+        ResetSearchState(showPrompt: !string.IsNullOrWhiteSpace(FindBox.Text));
     private void FindNext_Click(object sender, RoutedEventArgs e) => StepHit(+1);
     private void FindPrev_Click(object sender, RoutedEventArgs e) => StepHit(-1);
 
@@ -2425,23 +2438,32 @@ public sealed partial class MainWindow : Window
         {
             bool shift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
                 .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
-            StepHit(shift ? -1 : +1);
+            bool currentSearch = ReferenceEquals(_executedSearchViewer, _activeViewer) &&
+                string.Equals(_executedSearchQuery, FindBox.Text.Trim(), StringComparison.Ordinal) &&
+                _executedSearchMatchCase == (MatchCaseButton.IsChecked == true);
+            if (currentSearch && _searchHits.Count > 0)
+            {
+                StepHit(shift ? -1 : +1);
+            }
+            else
+            {
+                _ = RunSearchAsync();
+            }
             e.Handled = true;
         }
     }
 
-    private async void RunSearch()
+    private async Task RunSearchAsync()
     {
-        _searchCts?.Cancel();
-        _searchCts?.Dispose();
+        ResetSearchState(showPrompt: false);
         var cts = new CancellationTokenSource();
         _searchCts = cts;
 
-        string query = FindBox.Text;
+        string query = FindBox.Text.Trim();
         var viewer = _activeViewer;
         var document = CurrentView?.Viewer.Document;
+        bool matchCase = MatchCaseButton.IsChecked == true;
 
-        viewer?.ClearSearch();
         var collected = new List<SearchHit>();
         _searchHits = collected;
         var resultItems = new List<SearchResultItem>();
@@ -2454,10 +2476,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        _executedSearchQuery = query;
+        _executedSearchMatchCase = matchCase;
+        _executedSearchViewer = viewer;
+        FindCount.Text = "Searching…";
+
         try
         {
-            await Task.Delay(200, cts.Token); // debounce rapid typing
-            bool matchCase = MatchCaseButton.IsChecked == true;
             // Route each page's search through the viewer's render thread at
             // Background priority: visible tiles always outrank the sweep.
             var search = new DocumentSearch(document, query, matchCase, wholeWord: false,
@@ -2466,7 +2491,8 @@ public sealed partial class MainWindow : Window
             await search.RunAsync(
                 onPageHits: hits => DispatcherQueue.TryEnqueue(() =>
                 {
-                    if (_searchCts != cts)
+                    if (_searchCts != cts || !ReferenceEquals(_activeViewer, viewer) ||
+                        CurrentView?.Viewer.Document != document)
                     {
                         return; // superseded by a newer query
                     }
@@ -2478,6 +2504,8 @@ public sealed partial class MainWindow : Window
                         _activeHitIndex = 0;
                         viewer.HighlightHit(collected[0]);
                     }
+                    FindPrev.IsEnabled = true;
+                    FindNext.IsEnabled = true;
                     UpdateFindCount();
                 }),
                 onProgress: null,
@@ -2495,6 +2523,16 @@ public sealed partial class MainWindow : Window
         {
             // Superseded query; ignore.
         }
+        catch (Exception ex)
+        {
+            ErrorLog.Default.Write(nameof(RunSearchAsync), ex);
+            if (_searchCts == cts)
+            {
+                ResetSearchState(showPrompt: false);
+                FindCount.Text = "Search failed";
+                ShowError($"Couldn't search this document: {ex.Message}");
+            }
+        }
     }
 
     private async Task AppendSearchResultsAsync(PdfViewer viewer, IReadOnlyList<SearchHit> hits,
@@ -2505,7 +2543,7 @@ public sealed partial class MainWindow : Window
             string snippet;
             try { snippet = await viewer.GetSearchSnippetAsync(hit, query, cts.Token); }
             catch { snippet = query; }
-            if (_searchCts != cts) return;
+            if (_searchCts != cts || !ReferenceEquals(_activeViewer, viewer)) return;
             items.Add(new SearchResultItem(hit, snippet));
         }
         if (_searchCts == cts)

@@ -150,6 +150,39 @@ public class SchedulerOpTests
         Assert.Single(hits);
         Assert.Equal(0, hits[0].PageIndex);
     }
+
+    [Fact]
+    public async Task DocumentSearch_CancelsWhileWaitingInWorkQueue()
+    {
+        using var doc = PdfDocument.Open(CorpusPath("hello.pdf"));
+        using var scheduler = new RenderScheduler((_, bmp) => bmp.Return());
+        using var started = new ManualResetEventSlim(false);
+        using var gate = new ManualResetEventSlim(false);
+        var blocker = scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+        {
+            started.Set();
+            gate.Wait();
+        });
+        started.Wait();
+
+        using var cts = new CancellationTokenSource();
+        var search = new DocumentSearch(doc, "Hello", matchCase: true, wholeWord: false,
+            workQueue: scheduler);
+        var pending = search.RunAsync(null, null, cts.Token);
+        await Task.Delay(50); // let the background operation enter the scheduler queue
+        cts.Cancel();
+
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        }
+        finally
+        {
+            gate.Set();
+            await blocker;
+        }
+    }
 }
 
 public class PageTextTests

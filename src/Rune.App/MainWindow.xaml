@@ -639,7 +639,7 @@
                     <TextBox
                         x:Name="FindBox"
                         Width="152"
-                        PlaceholderText="Find in document"
+                        PlaceholderText="Type and press Enter"
                         TextChanged="FindBox_TextChanged"
                         KeyDown="FindBox_KeyDown" />
                     <TextBlock
