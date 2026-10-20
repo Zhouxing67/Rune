@@ -25,6 +25,8 @@ public sealed class ThumbnailItem : INotifyPropertyChanged
     private BitmapSource? _image;
     private double _boxHeight;
     private int _rotation;
+    private int _renderGeneration;
+    private bool _isRendering;
 
     public int PageIndex { get; }
     public string Label => (PageIndex + 1).ToString();
@@ -60,7 +62,7 @@ public sealed class ThumbnailItem : INotifyPropertyChanged
     {
         _rotation = rotationQuarterTurns;
         BoxHeight = ComputeHeight();
-        Image = null;
+        ReleaseImage();
     }
 
     private double ComputeHeight() =>
@@ -77,6 +79,46 @@ public sealed class ThumbnailItem : INotifyPropertyChanged
     }
 
     public bool IsRendered => _image is not null;
+
+    /// <summary>Claims a render for the current realization, preventing duplicate queued work.</summary>
+    public bool TryBeginRender(out int generation)
+    {
+        generation = _renderGeneration;
+        if (_image is not null || _isRendering)
+        {
+            return false;
+        }
+        _isRendering = true;
+        return true;
+    }
+
+    /// <summary>Publishes a render only if the item was not recycled while it was in flight.</summary>
+    public bool TryCompleteRender(BitmapSource image, int generation)
+    {
+        if (generation != _renderGeneration)
+        {
+            return false;
+        }
+        _isRendering = false;
+        Image = image;
+        return true;
+    }
+
+    public void FailRender(int generation)
+    {
+        if (generation == _renderGeneration)
+        {
+            _isRendering = false;
+        }
+    }
+
+    /// <summary>Drops pixels when virtualization recycles the row.</summary>
+    public void ReleaseImage()
+    {
+        _renderGeneration++;
+        _isRendering = false;
+        Image = null;
+    }
 
     /// <summary>
     /// Whether this is the page currently being read.

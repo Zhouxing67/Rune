@@ -40,6 +40,8 @@ public sealed partial class PdfViewer : UserControl
     // one 612pt page alone needs a 5x5 grid, and two pages can be visible — the
     // old 128 MB budget made those evict each other before they were ever drawn.
     private const long TileCacheBudgetBytes = 256L * 1024 * 1024;
+    private const long InactiveTileCacheBudgetBytes = 32L * 1024 * 1024;
+    private const int InactivePreviewCacheCapacity = 8;
     private const int PreviewCacheCapacity = 64;
     private const float PreviewTargetWidthPx = 216f;
 
@@ -421,7 +423,11 @@ public sealed partial class PdfViewer : UserControl
         // Leaving DocHost is only a temporary visual-tree transition. Pause
         // viewport tiles, but keep the scheduler and its document binding alive
         // across tab switches; the owner stops them only when the tab closes.
-        Unloaded += (_, _) => _scheduler.SetDesired([]);
+        Unloaded += (_, _) =>
+        {
+            _scheduler.SetDesired([]);
+            TrimCaches(InactiveTileCacheBudgetBytes, InactivePreviewCacheCapacity);
+        };
         Loaded += (_, _) => RequestDesiredUpdate();
     }
 
@@ -561,6 +567,26 @@ public sealed partial class PdfViewer : UserControl
         _staleTiles.Clear();
         _stalePreviews.Clear();
 
+    }
+
+    private void TrimCaches(long tileBudgetBytes, int previewCapacity)
+    {
+        while (_tileBytes > tileBudgetBytes && _tileLru.Last is { } oldest)
+        {
+            var (bitmap, _) = _tiles[oldest.Value];
+            _tileBytes -= (long)bitmap.SizeInPixels.Width * bitmap.SizeInPixels.Height * 4;
+            _tiles.Remove(oldest.Value);
+            _tileLru.RemoveLast();
+            _staleTiles.Remove(oldest.Value);
+            bitmap.Dispose();
+        }
+        while (_previewLru.Count > previewCapacity && _previewLru.Last is { } oldest)
+        {
+            _previews[oldest.Value].Bitmap.Dispose();
+            _previews.Remove(oldest.Value);
+            _previewLru.RemoveLast();
+            _stalePreviews.Remove(oldest.Value);
+        }
     }
 
     // ---------------------------------------------------------------- zoom & fit
@@ -2560,6 +2586,35 @@ public sealed partial class PdfViewer : UserControl
         Canvas.Invalidate();
     }
 
+    /// <summary>Adds one search batch without rebuilding all earlier page groups.</summary>
+    public void AppendSearchResults(IReadOnlyList<SearchHit> hits)
+    {
+        if (hits.Count == 0)
+        {
+            return;
+        }
+        var changedPages = new HashSet<int>();
+        foreach (var hit in hits)
+        {
+            if (!_searchByPage.TryGetValue(hit.PageIndex, out var list))
+            {
+                _searchByPage[hit.PageIndex] = list = [];
+            }
+            list.Add(hit);
+            changedPages.Add(hit.PageIndex);
+        }
+        if (_layout is null)
+        {
+            Canvas.Invalidate();
+            return;
+        }
+        foreach (int pageIndex in changedPages)
+        {
+            var page = _layout.GetPageRect(pageIndex);
+            Canvas.Invalidate(new Rect(page.X, page.Y, page.Width, page.Height));
+        }
+    }
+
     /// <summary>Emphasizes one hit and scrolls it into view.</summary>
     public void HighlightHit(SearchHit hit)
     {
@@ -2585,14 +2640,19 @@ public sealed partial class PdfViewer : UserControl
         Canvas.Invalidate();
     }
 
-    public async Task<string> GetSearchSnippetAsync(SearchHit hit, string query)
+    public async Task<string> GetSearchSnippetAsync(SearchHit hit, string query,
+        CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (_document is not { } document) return query;
         PageText text;
         if (!_pageTexts.TryGetValue(hit.PageIndex, out text!))
         {
-            text = await _scheduler.RunAsync(PdfWorkPriority.Background, () => document.GetPageText(hit.PageIndex));
+            text = await _scheduler.RunAsync(PdfWorkPriority.Background,
+                () => document.GetPageText(hit.PageIndex), cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
             if (_document != document) return query;
+            InsertPageText(hit.PageIndex, text);
         }
         int context = 42;
         int start = Math.Max(0, hit.CharIndex - context);

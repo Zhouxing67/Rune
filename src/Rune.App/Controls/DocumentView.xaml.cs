@@ -19,7 +19,7 @@ namespace Rune.Controls;
 public sealed partial class DocumentView : UserControl
 {
     private readonly DispatcherQueue _dispatcher;
-    private readonly ObservableCollection<ThumbnailItem> _thumbnails = [];
+    private ObservableCollection<ThumbnailItem> _thumbnails = [];
     private readonly SemaphoreSlim _saveGate = new(1, 1);
 
     private PdfDocument? _document;
@@ -28,6 +28,9 @@ public sealed partial class DocumentView : UserControl
     private bool _closed;
     private bool _syncingSelection;
     private List<OutlineNode> _outlineNodes = [];
+    private List<OutlineNode> _flatOutlineNodes = [];
+    private List<OutlineNode> _outlineTargets = [];
+    private OutlineNode? _currentOutlineNode;
 
     public string FilePath { get; }
     public string DisplayName => Path.GetFileName(FilePath);
@@ -333,12 +336,16 @@ public sealed partial class DocumentView : UserControl
     private void PopulateThumbnails(PdfDocument document)
     {
         int rotation = Viewer.ViewRotation;
-        _thumbnails.Clear();
+        var thumbnails = new List<ThumbnailItem>(document.PageCount);
         for (int i = 0; i < document.PageCount; i++)
         {
             var (ptWidth, ptHeight) = document.GetPageSize(i);
-            _thumbnails.Add(new ThumbnailItem(i, ptWidth, ptHeight, rotation));
+            thumbnails.Add(new ThumbnailItem(i, ptWidth, ptHeight, rotation));
         }
+        // Replacing the source produces one UI update instead of one collection
+        // notification per page on large documents.
+        _thumbnails = new ObservableCollection<ThumbnailItem>(thumbnails);
+        ThumbList.ItemsSource = _thumbnails;
     }
 
     /// <summary>Re-shapes and re-renders thumbnails after the view is rotated.</summary>
@@ -362,7 +369,16 @@ public sealed partial class DocumentView : UserControl
     // Lazily render a thumbnail as its container is realized (list virtualization).
     private void ThumbList_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
     {
-        if (args.InRecycleQueue || args.Item is not ThumbnailItem item || item.IsRendered || _document is null)
+        if (args.Item is not ThumbnailItem item)
+        {
+            return;
+        }
+        if (args.InRecycleQueue)
+        {
+            item.ReleaseImage();
+            return;
+        }
+        if (item.IsRendered || _document is null)
         {
             return;
         }
@@ -376,7 +392,7 @@ public sealed partial class DocumentView : UserControl
     /// </summary>
     private async Task RenderThumbnailAsync(ThumbnailItem item)
     {
-        if (_document is not { } document)
+        if (_document is not { } document || !item.TryBeginRender(out int generation))
         {
             return;
         }
@@ -398,13 +414,14 @@ public sealed partial class DocumentView : UserControl
             // Drop the result if the document or rotation moved on while we waited.
             if (_document == document && Viewer.ViewRotation == rotation)
             {
-                item.Image = ToBitmap(bmp);
+                item.TryCompleteRender(ToBitmap(bmp), generation);
             }
             bmp.Return();
         }
         catch
         {
             // Skip unrenderable thumbnails (also covers doc-swap cancellation).
+            item.FailRender(generation);
         }
     }
 
@@ -486,6 +503,10 @@ public sealed partial class DocumentView : UserControl
         // supplies the hierarchy. (Populating RootNodes with TreeViewNode
         // wrappers instead crashes template realization with a type mismatch.)
         _outlineNodes = outline.Select(item => new OutlineNode(item)).ToList();
+        _flatOutlineNodes = [.. FlattenOutline(_outlineNodes)];
+        _outlineTargets = [.. _flatOutlineNodes.Where(n => n.PageIndex >= 0)
+            .OrderBy(n => n.PageIndex)];
+        _currentOutlineNode = null;
         _hasOutline = _outlineNodes.Count > 0;
         OutlineTree.ItemsSource = _outlineNodes;
         SyncOutlineSelection(Viewer.CurrentPage);
@@ -493,13 +514,34 @@ public sealed partial class DocumentView : UserControl
 
     private void SyncOutlineSelection(int pageIndex)
     {
-        OutlineNode? current = FlattenOutline(_outlineNodes)
-            .Where(n => n.PageIndex >= 0 && n.PageIndex <= pageIndex)
-            .OrderByDescending(n => n.PageIndex)
-            .FirstOrDefault();
-        foreach (var node in FlattenOutline(_outlineNodes))
+        int lo = 0;
+        int hi = _outlineTargets.Count - 1;
+        OutlineNode? current = null;
+        while (lo <= hi)
         {
-            node.IsCurrent = ReferenceEquals(node, current);
+            int mid = lo + ((hi - lo) / 2);
+            if (_outlineTargets[mid].PageIndex <= pageIndex)
+            {
+                current = _outlineTargets[mid];
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid - 1;
+            }
+        }
+        if (ReferenceEquals(current, _currentOutlineNode))
+        {
+            return;
+        }
+        if (_currentOutlineNode is not null)
+        {
+            _currentOutlineNode.IsCurrent = false;
+        }
+        _currentOutlineNode = current;
+        if (_currentOutlineNode is not null)
+        {
+            _currentOutlineNode.IsCurrent = true;
         }
     }
 

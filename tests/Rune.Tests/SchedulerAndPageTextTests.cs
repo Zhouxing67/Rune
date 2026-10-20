@@ -57,6 +57,35 @@ public class SchedulerOpTests
     }
 
     [Fact]
+    public async Task RunAsync_CancelledQueuedOperation_DoesNotExecute()
+    {
+        using var scheduler = new RenderScheduler((_, bmp) => bmp.Return());
+        var started = new ManualResetEventSlim(false);
+        var gate = new ManualResetEventSlim(false);
+        var blocker = scheduler.RunAsync(PdfWorkPriority.Interactive, () =>
+        {
+            started.Set();
+            gate.Wait();
+        });
+        started.Wait();
+
+        using var cts = new CancellationTokenSource();
+        bool executed = false;
+        var pending = scheduler.RunAsync(PdfWorkPriority.Background, () =>
+        {
+            executed = true;
+            return 1;
+        }, cts.Token);
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
+        gate.Set();
+        await blocker;
+        await scheduler.RunAsync(PdfWorkPriority.Interactive, () => true);
+        Assert.False(executed);
+    }
+
+    [Fact]
     public async Task SetDocument_CancelsPendingOps()
     {
         using var scheduler = new RenderScheduler((_, bmp) => bmp.Return());

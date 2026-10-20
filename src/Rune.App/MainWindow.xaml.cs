@@ -2430,6 +2430,8 @@ public sealed partial class MainWindow : Window
         }
         FindBar.Visibility = Visibility.Collapsed;
         _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = null;
         _activeViewer?.ClearSearch();
         _searchHits = [];
         FindResultsList.ItemsSource = null;
@@ -2457,6 +2459,7 @@ public sealed partial class MainWindow : Window
     private async void RunSearch()
     {
         _searchCts?.Cancel();
+        _searchCts?.Dispose();
         var cts = new CancellationTokenSource();
         _searchCts = cts;
 
@@ -2494,7 +2497,7 @@ public sealed partial class MainWindow : Window
                         return; // superseded by a newer query
                     }
                     collected.AddRange(hits);
-                    viewer.SetSearchResults(collected);
+                    viewer.AppendSearchResults(hits);
                     _ = AppendSearchResultsAsync(viewer, hits, query, resultItems, cts);
                     if (_activeHitIndex < 0 && collected.Count > 0)
                     {
@@ -2526,7 +2529,7 @@ public sealed partial class MainWindow : Window
         foreach (var hit in hits)
         {
             string snippet;
-            try { snippet = await viewer.GetSearchSnippetAsync(hit, query); }
+            try { snippet = await viewer.GetSearchSnippetAsync(hit, query, cts.Token); }
             catch { snippet = query; }
             if (_searchCts != cts) return;
             items.Add(new SearchResultItem(hit, snippet));

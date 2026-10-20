@@ -21,7 +21,8 @@ public enum PdfWorkPriority
 /// </summary>
 public interface IPdfWorkQueue
 {
-    Task<T> RunAsync<T>(PdfWorkPriority priority, Func<T> operation);
+    Task<T> RunAsync<T>(PdfWorkPriority priority, Func<T> operation,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -100,17 +101,24 @@ public sealed class RenderScheduler : IDisposable, IPdfWorkQueue
     /// completes (or faults) with the operation; it is cancelled if the
     /// document is swapped or the scheduler disposed before it runs.
     /// </summary>
-    public Task<T> RunAsync<T>(PdfWorkPriority priority, Func<T> operation)
+    public Task<T> RunAsync<T>(PdfWorkPriority priority, Func<T> operation,
+        CancellationToken cancellationToken = default)
     {
         // RunContinuationsAsynchronously matters: without it, awaiting code
         // would resume INSIDE the render loop, stalling rendering (or worse,
         // deadlocking if the continuation blocks on more render work).
         var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        CancellationTokenRegistration registration = default;
         var op = new ScheduledOp(
             Execute: () =>
             {
                 try
                 {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        tcs.TrySetCanceled(cancellationToken);
+                        return;
+                    }
                     tcs.TrySetResult(operation());
                 }
                 catch (OperationCanceledException)
@@ -121,14 +129,28 @@ public sealed class RenderScheduler : IDisposable, IPdfWorkQueue
                 {
                     tcs.TrySetException(ex);
                 }
+                finally
+                {
+                    registration.Dispose();
+                }
             },
-            Cancel: () => tcs.TrySetCanceled());
+            Cancel: () =>
+            {
+                tcs.TrySetCanceled(cancellationToken);
+                registration.Dispose();
+            });
+
+        // Complete obsolete UI work immediately. The lightweight queue entry
+        // remains until its turn, where Execute observes the token and skips
+        // the PDFium operation instead of blocking newer work.
+        registration = cancellationToken.Register(() => tcs.TrySetCanceled(cancellationToken));
 
         lock (_gate)
         {
             if (_stopping)
             {
                 tcs.TrySetCanceled();
+                registration.Dispose();
                 return tcs.Task;
             }
             _ops[(int)priority].Enqueue(op);
