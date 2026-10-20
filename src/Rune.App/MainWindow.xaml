@@ -75,7 +75,9 @@
         <!-- Reader toolbar: three real layout regions. The central tool group
              participates in Grid measurement and can no longer overlap the
              navigation groups at narrower widths. -->
-        <Border Grid.Row="1" Style="{StaticResource ChromeSurfaceStyle}">
+        <Border Grid.Row="1"
+                Margin="{StaticResource ConnectedChromeMargin}"
+                Style="{StaticResource ChromeSurfaceStyle}">
         <Grid
             x:Name="Toolbar"
             Height="{StaticResource HeaderHeight}"
