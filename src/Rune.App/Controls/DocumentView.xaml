@@ -68,6 +68,7 @@
                     Visibility="Collapsed"
                     SelectionMode="Single"
                     Padding="4,8"
+                    ItemContainerStyle="{StaticResource OutlineItemStyle}"
                     ItemInvoked="OutlineTree_ItemInvoked">
                     <TreeView.ItemTemplate>
                         <DataTemplate x:DataType="controls:OutlineNode">

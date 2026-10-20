@@ -300,6 +300,7 @@
         <Setter Property="MinHeight" Value="{StaticResource OutlineRowHeight}" />
         <Setter Property="Padding" Value="4,0,8,0" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
 
