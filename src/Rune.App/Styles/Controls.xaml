@@ -123,11 +123,6 @@
         <Setter Property="Height" Value="{StaticResource CompactButtonSize}" />
     </Style>
 
-    <Style x:Key="TitleBarIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
-        <Setter Property="Width" Value="{StaticResource TouchTargetMin}" />
-        <Setter Property="Height" Value="{StaticResource TouchTargetMin}" />
-    </Style>
-
     <Style x:Key="CompactTextButtonStyle" TargetType="Button">
         <Setter Property="MinHeight" Value="{StaticResource CompactButtonSize}" />
         <Setter Property="Padding" Value="10,4" />

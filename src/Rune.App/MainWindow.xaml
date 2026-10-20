@@ -60,13 +60,17 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="*" />
                     </Grid.ColumnDefinitions>
-                    <Button Grid.Column="0"
-                            Style="{StaticResource TitleBarIconButtonStyle}"
-                            Click="OpenButton_Click"
-                            AutomationProperties.Name="New tab"
-                            ToolTipService.ToolTip="Open a PDF in a new tab (Ctrl+O)">
-                        <FontIcon Glyph="&#xE710;" FontSize="{StaticResource IconGlyphSize}" />
-                    </Button>
+                    <Border Grid.Column="0"
+                            Height="{StaticResource TouchTargetMin}"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource ToolbarGroupSurfaceStyle}">
+                        <Button Style="{StaticResource IconButtonStyle}"
+                                Click="OpenButton_Click"
+                                AutomationProperties.Name="New tab"
+                                ToolTipService.ToolTip="Open a PDF in a new tab (Ctrl+O)">
+                            <FontIcon Glyph="&#xE710;" FontSize="{StaticResource IconGlyphSize}" />
+                        </Button>
+                    </Border>
                     <Grid x:Name="TitleBarDragArea" Grid.Column="1" Background="Transparent" MinWidth="188" />
                 </Grid>
             </TabView.TabStripFooter>
@@ -90,7 +94,6 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -98,7 +101,7 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Border Grid.Column="0" Grid.ColumnSpan="7"
+            <Border Grid.Column="0" Grid.ColumnSpan="6"
                     Style="{StaticResource ToolbarGroupSurfaceStyle}" />
 
             <ToggleButton
@@ -135,31 +138,22 @@
 
             <Border Grid.Column="2" Style="{StaticResource HeaderSeparatorStyle}" Margin="8,0,4,0" />
 
-            <ToggleButton
-                x:Name="FitWidthButton"
+            <Button
+                x:Name="FitModeButton"
                 Grid.Column="3"
-                Style="{StaticResource IconToggleButtonStyle}"
-                Click="FitWidthButton_Click"
+                Style="{StaticResource IconButtonStyle}"
+                Click="FitModeButton_Click"
                 IsEnabled="False"
-                AutomationProperties.Name="Fit width" ToolTipService.ToolTip="Fit width (Ctrl+2)">
-                <FontIcon Glyph="&#xE9A6;" FontSize="{StaticResource IconGlyphSize}" />
-            </ToggleButton>
-            <ToggleButton
-                x:Name="FitPageButton"
-                Grid.Column="4"
-                Style="{StaticResource IconToggleButtonStyle}"
-                Click="FitPageButton_Click"
-                IsEnabled="False"
-                AutomationProperties.Name="Fit page" ToolTipService.ToolTip="Fit page (Ctrl+0)">
-                <FontIcon Glyph="&#xE9A6;" FontSize="{StaticResource IconGlyphSize}" RenderTransformOrigin="0.5,0.5">
+                AutomationProperties.Name="Fit width" ToolTipService.ToolTip="Fit width — click to fit page">
+                <FontIcon x:Name="FitModeIcon" Glyph="&#xE9A6;" FontSize="{StaticResource IconGlyphSize}" RenderTransformOrigin="0.5,0.5">
                     <FontIcon.RenderTransform>
-                        <RotateTransform Angle="90" />
+                        <RotateTransform x:Name="FitModeIconRotation" Angle="0" />
                     </FontIcon.RenderTransform>
                 </FontIcon>
-            </ToggleButton>
+            </Button>
             <Button
                 x:Name="RotateLeftButton"
-                Grid.Column="5"
+                Grid.Column="4"
                 Style="{StaticResource IconButtonStyle}"
                 Click="RotateLeftButton_Click"
                 IsEnabled="False"
@@ -173,7 +167,7 @@
             </Button>
             <Button
                 x:Name="RotateRightButton"
-                Grid.Column="6"
+                Grid.Column="5"
                 Style="{StaticResource IconButtonStyle}"
                 Click="RotateButton_Click"
                 IsEnabled="False"
@@ -183,7 +177,7 @@
 
             <!-- Content tools are a real middle group, not an overlay spanning
                  the complete toolbar. -->
-            <Border Grid.Column="7" Style="{StaticResource ToolbarGroupSurfaceStyle}"
+            <Border Grid.Column="6" Style="{StaticResource ToolbarGroupSurfaceStyle}"
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="2">
@@ -248,7 +242,7 @@
             </StackPanel>
             </Border>
 
-            <Border Grid.Column="8" Grid.ColumnSpan="2" Style="{StaticResource ToolbarGroupSurfaceStyle}">
+            <Border Grid.Column="7" Grid.ColumnSpan="2" Style="{StaticResource ToolbarGroupSurfaceStyle}">
             <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button x:Name="HistoryBackButton" Style="{StaticResource IconButtonStyle}"
                         Click="HistoryBackButton_Click" IsEnabled="False"
@@ -269,7 +263,7 @@
             </Border>
             <Button
                 x:Name="MenuButton"
-                Grid.Column="10"
+                Grid.Column="9"
                 Grid.ColumnSpan="2"
                 Style="{StaticResource IconButtonStyle}"
                 AutomationProperties.Name="Menu" ToolTipService.ToolTip="Menu">

@@ -854,7 +854,7 @@ public sealed partial class MainWindow : Window
                  {
                      SidebarButton, PageBox, FindButton,
                      ZoomInButton, ZoomOutButton, ZoomLabelButton,
-                     FitWidthButton, FitPageButton, RotateLeftButton, RotateRightButton,
+                     FitModeButton, RotateLeftButton, RotateRightButton,
                      // The annotation cluster. A tool button left out of this
                      // list stays permanently greyed out — nothing else enables it.
                      PenToolButton, HighlighterToolButton, NoteToolButton,
@@ -1026,6 +1026,8 @@ public sealed partial class MainWindow : Window
     private void RotateLeftButton_Click(object sender, RoutedEventArgs e) => _activeViewer?.RotateCounterClockwise();
     private void FitWidthButton_Click(object sender, RoutedEventArgs e) => SetFitMode(FitMode.FitWidth);
     private void FitPageButton_Click(object sender, RoutedEventArgs e) => SetFitMode(FitMode.FitPage);
+    private void FitModeButton_Click(object sender, RoutedEventArgs e) =>
+        SetFitMode(_activeViewer?.FitMode == FitMode.FitWidth ? FitMode.FitPage : FitMode.FitWidth);
     private void SaveButton_Click(object sender, RoutedEventArgs e) => _ = SaveActiveAsync();
     private void SaveAsButton_Click(object sender, RoutedEventArgs e) => _ = SaveAsActiveAsync();
     private void PropertiesButton_Click(object sender, RoutedEventArgs e) => _ = ShowPropertiesAsync();
@@ -1100,13 +1102,16 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Keeps the header toggles and the zoom-pill menu items in step.</summary>
+    /// <summary>Keeps the header fit icon and the zoom-pill menu items in step.</summary>
     private void UpdateFitToggles()
     {
         bool fitWidth = _activeViewer?.FitMode == FitMode.FitWidth;
         bool fitPage = _activeViewer?.FitMode == FitMode.FitPage;
-        FitWidthButton.IsChecked = fitWidth;
-        FitPageButton.IsChecked = fitPage;
+        FitModeIconRotation.Angle = fitPage ? 90 : 0;
+        string currentMode = fitPage ? "Fit page" : "Fit width";
+        string nextMode = fitPage ? "fit width" : "fit page";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FitModeButton, currentMode);
+        ToolTipService.SetToolTip(FitModeButton, $"{currentMode} — click to {nextMode}");
         FitWidthItem.IsChecked = fitWidth;   // ToggleMenuFlyoutItem.IsChecked is bool,
         FitPageItem.IsChecked = fitPage;     // ToggleButton.IsChecked is bool? — assign separately
     }
