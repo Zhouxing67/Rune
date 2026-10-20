@@ -99,7 +99,7 @@
 
     <!-- Sidebar. Thumbnail boxes take their height from each page's own aspect
          ratio; the clamps keep a poster (1:10) or a banner (10:1) usable. -->
-    <x:Double x:Key="SidebarWidth">288</x:Double>
+    <x:Double x:Key="SidebarWidth">264</x:Double>
     <x:Double x:Key="OutlineRowHeight">40</x:Double>
     <!-- ColumnDefinition.Width is GridLength, not Double. Because outline
          templates are realized lazily, a Double resource compiles but throws

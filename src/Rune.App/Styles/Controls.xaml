@@ -309,7 +309,7 @@
          The page card itself owns the current-page accent ring. -->
     <Style x:Key="ThumbnailListItemStyle" TargetType="ListViewItem">
         <Setter Property="Padding" Value="0" />
-        <Setter Property="Margin" Value="8,2" />
+        <Setter Property="Margin" Value="4,2,6,2" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />

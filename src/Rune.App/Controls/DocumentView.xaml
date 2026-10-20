@@ -24,7 +24,7 @@
                     x:Name="ThumbList"
                     Grid.Row="0"
                     SelectionMode="Extended"
-                    Padding="8,8"
+                    Padding="2,8,6,8"
                     ItemContainerStyle="{StaticResource ThumbnailListItemStyle}"
                     CanDragItems="True"
                     CanReorderItems="True"
@@ -73,7 +73,7 @@
                     Grid.Row="0"
                     Visibility="Collapsed"
                     SelectionMode="Single"
-                    Padding="4,8"
+                    Padding="0,8,4,8"
                     ItemContainerStyle="{StaticResource OutlineItemStyle}"
                     ItemInvoked="OutlineTree_ItemInvoked">
                     <TreeView.ItemTemplate>
