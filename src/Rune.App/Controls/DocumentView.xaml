@@ -35,6 +35,12 @@
                     Drop="ThumbList_Drop"
                     RightTapped="ThumbList_RightTapped"
                     KeyDown="ThumbList_KeyDown">
+                    <ListView.Resources>
+                        <!-- Selection belongs to the page card, not to an unrelated
+                             strip at the far edge of the sidebar. Multi-selection
+                             still keeps the standard row background. -->
+                        <x:Boolean x:Key="ListViewItemSelectionIndicatorVisualEnabled">False</x:Boolean>
+                    </ListView.Resources>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="controls:ThumbnailItem">
                             <StackPanel HorizontalAlignment="Center" Spacing="4" Padding="0,6">
@@ -51,6 +57,11 @@
                                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
                                         <Image Source="{x:Bind Image, Mode=OneWay}" Stretch="Uniform" />
                                     </Border>
+                                    <Border
+                                        BorderThickness="{x:Bind RingThickness, Mode=OneWay}"
+                                        BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                        CornerRadius="4"
+                                        IsHitTestVisible="False" />
                                 </Grid>
                                 <TextBlock
                                     Text="{x:Bind Label}"
