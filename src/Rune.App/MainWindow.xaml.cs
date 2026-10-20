@@ -517,6 +517,12 @@ public sealed partial class MainWindow : Window
         if (view.LoadError is null && view.IsDocumentLoaded && _tabLoadFinalized.Add(view))
         {
             view.LoadBookmarks(_state.FindRecent(view.FilePath)?.Bookmarks ?? []);
+            // A successfully opened document is recent immediately. Waiting
+            // until window close loses the entry on a crash and leaves Home
+            // stale for the whole session.
+            CaptureState(view);
+            _store.Save(_state);
+            PopulateRecents();
         }
         if (view.LoadError is { } error && view == CurrentView)
         {

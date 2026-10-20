@@ -549,8 +549,48 @@ public sealed partial class PdfViewer : UserControl
         SetZoom(zoom <= 0 ? 1.0 : zoom);
         if (_layout is not null)
         {
-            Scroller.ChangeView(null, scrollFraction * _layout.TotalHeight, null, disableAnimation: true);
+            RestoreScrollFraction(scrollFraction);
         }
+    }
+
+    /// <summary>
+    /// Restores a proportional reading position after a document swap.
+    /// Assigning the new canvas extent does not synchronously update the
+    /// ScrollViewer's scrollable range, so an immediate ChangeView can be
+    /// accepted and still clamp to zero. Reconcile once more after layout.
+    /// </summary>
+    private void RestoreScrollFraction(double scrollFraction)
+    {
+        if (_layout is null)
+        {
+            return;
+        }
+
+        double fraction = Math.Clamp(scrollFraction, 0, 1);
+        var document = _document;
+        Scroller.UpdateLayout();
+        Scroller.ChangeView(null, fraction * _layout.TotalHeight, null, disableAnimation: true);
+        Canvas.Invalidate();
+        UpdateDesiredTiles();
+
+        _dispatcher.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!ReferenceEquals(_document, document) || _layout is null)
+            {
+                return;
+            }
+
+            Scroller.UpdateLayout();
+            double target = fraction * _layout.TotalHeight;
+            if (Math.Abs(Scroller.VerticalOffset - target) > 1)
+            {
+                Scroller.ChangeView(null, target, null, disableAnimation: true);
+            }
+            Canvas.Invalidate();
+            UpdateDesiredTiles();
+            UpdateCurrentPage();
+            PrefetchVisiblePageData();
+        });
     }
 
     private void ClearCaches()
