@@ -13,6 +13,43 @@
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Root"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
+                        <ContentPresenter
+                            Content="{TemplateBinding Content}"
+                            Foreground="{TemplateBinding Foreground}"
+                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Opacity" Value="0.38" />
+                                    </VisualState.Setters>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="IconToggleButtonStyle" TargetType="ToggleButton">
@@ -32,23 +69,26 @@
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
                             CornerRadius="{TemplateBinding CornerRadius}">
-                        <ContentPresenter
-                            x:Name="Presenter"
-                            Content="{TemplateBinding Content}"
-                            Foreground="{TemplateBinding Foreground}"
-                            HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                            VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        <Grid>
+                            <Border x:Name="InteractionLayer" CornerRadius="{TemplateBinding CornerRadius}" />
+                            <ContentPresenter
+                                x:Name="Presenter"
+                                Content="{TemplateBinding Content}"
+                                Foreground="{TemplateBinding Foreground}"
+                                HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Grid>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
                                 <VisualState x:Name="Normal" />
                                 <VisualState x:Name="PointerOver">
                                     <VisualState.Setters>
-                                        <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                        <Setter Target="InteractionLayer.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Pressed">
                                     <VisualState.Setters>
-                                        <Setter Target="Root.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                        <Setter Target="InteractionLayer.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Disabled">
@@ -83,6 +123,11 @@
         <Setter Property="Height" Value="{StaticResource CompactButtonSize}" />
     </Style>
 
+    <Style x:Key="TitleBarIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Width" Value="{StaticResource TouchTargetMin}" />
+        <Setter Property="Height" Value="{StaticResource TouchTargetMin}" />
+    </Style>
+
     <Style x:Key="CompactTextButtonStyle" TargetType="Button">
         <Setter Property="MinHeight" Value="{StaticResource CompactButtonSize}" />
         <Setter Property="Padding" Value="10,4" />
@@ -94,8 +139,8 @@
     <!-- The Home wordmark is Rune's red brand anchor within the otherwise
          blue-accented reader chrome. -->
     <Style x:Key="HomeButtonStyle" TargetType="Button">
-        <Setter Property="Width" Value="{StaticResource HeaderHeight}" />
-        <Setter Property="Height" Value="{StaticResource HeaderHeight}" />
+        <Setter Property="Width" Value="{StaticResource TouchTargetMin}" />
+        <Setter Property="Height" Value="{StaticResource TouchTargetMin}" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Background" Value="{ThemeResource HomeButtonBackgroundBrush}" />
         <Setter Property="Foreground" Value="White" />

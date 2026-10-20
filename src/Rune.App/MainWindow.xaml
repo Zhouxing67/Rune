@@ -30,11 +30,12 @@
         <TabView
             x:Name="Tabs"
             Grid.Row="0"
+            Height="{StaticResource TouchTargetMin}"
             VerticalAlignment="Top"
             TabWidthMode="Equal"
+            IsAddTabButtonVisible="False"
             CloseButtonOverlayMode="Always"
             SelectionChanged="Tabs_SelectionChanged"
-            AddTabButtonClick="Tabs_AddTabButtonClick"
             TabCloseRequested="Tabs_TabCloseRequested">
             <TabView.TabStripHeader>
                 <!-- The wordmark is an idempotent Home button: it shows the
@@ -54,7 +55,20 @@
                 </Button>
             </TabView.TabStripHeader>
             <TabView.TabStripFooter>
-                <Grid x:Name="TitleBarDragArea" Background="Transparent" MinWidth="188" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0"
+                            Style="{StaticResource TitleBarIconButtonStyle}"
+                            Click="OpenButton_Click"
+                            AutomationProperties.Name="New tab"
+                            ToolTipService.ToolTip="Open a PDF in a new tab (Ctrl+O)">
+                        <FontIcon Glyph="&#xE710;" FontSize="{StaticResource IconGlyphSize}" />
+                    </Button>
+                    <Grid x:Name="TitleBarDragArea" Grid.Column="1" Background="Transparent" MinWidth="188" />
+                </Grid>
             </TabView.TabStripFooter>
         </TabView>
 

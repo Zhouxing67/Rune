@@ -554,8 +554,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void Tabs_AddTabButtonClick(TabView sender, object args) => OpenButton_Click(sender, null!);
-
     private async void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args)
     {
         try
