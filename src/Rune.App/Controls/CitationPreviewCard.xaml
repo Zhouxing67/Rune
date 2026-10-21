@@ -35,7 +35,7 @@
 
             <Border Grid.Row="1" Margin="12,0" Padding="12,10"
                     CornerRadius="{StaticResource RadiusSmall}"
-                    Background="{ThemeResource SubtleFillColorTertiaryBrush}">
+                    Background="{ThemeResource LayerFillColorDefaultBrush}">
                 <ScrollViewer MaxHeight="164" VerticalScrollBarVisibility="Auto">
                     <TextBlock x:Name="ReferenceText" TextWrapping="WrapWholeWords"
                                IsTextSelectionEnabled="True" Style="{StaticResource BodyTextStyle}" LineHeight="20"
@@ -52,11 +52,10 @@
                             <TextBlock Text="Open link" Style="{StaticResource CaptionTextStyle}" />
                         </StackPanel>
                     </Button>
-                    <Button Click="GoTo_Click" Style="{StaticResource CompactTextButtonStyle}"
-                            Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}">
+                    <Button Click="GoTo_Click" Style="{StaticResource AccentButtonStyle}"
+                            MinHeight="{StaticResource CompactButtonSize}" Padding="10,4">
                         <StackPanel Orientation="Horizontal" Spacing="6">
-                            <TextBlock Text="Go to reference" Style="{StaticResource CaptionTextStyle}"
-                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                            <TextBlock Text="Go to reference" FontSize="{StaticResource TextCaptionSize}" />
                             <FontIcon Glyph="&#xE72A;" FontSize="{StaticResource CompactGlyphSize}" />
                         </StackPanel>
                     </Button>

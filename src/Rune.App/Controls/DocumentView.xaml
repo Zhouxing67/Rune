@@ -90,9 +90,9 @@
                                         <ColumnDefinition Width="*" />
                                         <ColumnDefinition Width="{StaticResource OutlinePageWidth}" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Margin="10,0,8,0" VerticalAlignment="Center"
+                                    <TextBlock Grid.Column="0" Margin="8,0,6,0" VerticalAlignment="Center"
                                                Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center" HorizontalAlignment="Right"
+                                    <TextBlock Grid.Column="1" Margin="0,0,6,0" VerticalAlignment="Center" HorizontalAlignment="Right"
                                                Text="{x:Bind PageLabel}" Style="{StaticResource OutlinePageTextStyle}" />
                                 </Grid>
                             </TreeViewItem>
@@ -153,7 +153,7 @@
                 </StackPanel>
 
                 <!-- Bottom switcher (Papers pattern): thumbnails / chapters / bookmarks -->
-                <Grid Grid.Row="1" Padding="8,4" ColumnSpacing="4"
+                <Grid Grid.Row="1" Padding="8,5" ColumnSpacing="4"
                       BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                       BorderThickness="0,1,0,0">
                     <Grid.ColumnDefinitions>

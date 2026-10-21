@@ -102,7 +102,7 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0" Grid.ColumnSpan="6"
-                    Style="{StaticResource ToolbarGroupSurfaceStyle}" />
+                    Style="{StaticResource ToolbarClusterStyle}" />
 
             <ToggleButton
                 x:Name="SidebarButton"
@@ -242,7 +242,7 @@
             </StackPanel>
             </Border>
 
-            <Border Grid.Column="7" Grid.ColumnSpan="2" Style="{StaticResource ToolbarGroupSurfaceStyle}">
+            <Border Grid.Column="7" Grid.ColumnSpan="2" Style="{StaticResource ToolbarClusterStyle}">
             <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button x:Name="HistoryBackButton" Style="{StaticResource IconButtonStyle}"
                         Click="HistoryBackButton_Click" IsEnabled="False"
@@ -401,7 +401,10 @@
                           HorizontalScrollBarVisibility="Disabled"
                           HorizontalContentAlignment="Stretch"
                           VerticalContentAlignment="Stretch">
-              <Grid x:Name="HomeContent" Padding="{StaticResource HomePagePadding}">
+              <Grid x:Name="HomeContent"
+                    MaxWidth="{StaticResource HomeContentMaxWidth}"
+                    HorizontalAlignment="Center"
+                    Padding="{StaticResource HomePagePadding}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
@@ -440,7 +443,7 @@
                 </VisualStateManager.VisualStateGroups>
 
                 <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
-                            Orientation="Horizontal" Spacing="18" Margin="0,0,0,40">
+                            Orientation="Horizontal" Spacing="16" Margin="0,0,0,34">
                     <Image Source="/Assets/Square150x150Logo.scale-100.png" Width="60" Height="60" />
                     <StackPanel VerticalAlignment="Center" Spacing="2">
                         <TextBlock Text="Rune" Style="{StaticResource DisplayTextStyle}" />
@@ -629,46 +632,56 @@
                 VerticalAlignment="Top"
                 HorizontalAlignment="Right"
                 Margin="0,8,16,0"
-                Padding="6">
+                Padding="8">
                 <Grid Width="{StaticResource SearchResultPanelWidth}" MaxHeight="520">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <Grid ColumnSpacing="4" VerticalAlignment="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
                     <TextBox
                         x:Name="FindBox"
-                        Width="152"
+                        MinWidth="176"
                         PlaceholderText="Type and press Enter"
                         TextChanged="FindBox_TextChanged"
                         KeyDown="FindBox_KeyDown" />
                     <TextBlock
                         x:Name="FindCount"
+                        Grid.Column="1"
                         VerticalAlignment="Center"
-                        MinWidth="64"
-                        Margin="4,0"
+                        MinWidth="54"
+                        Margin="6,0,2,0"
+                        TextAlignment="Center"
                         Style="{StaticResource CaptionTextBlockStyle}"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <!-- These four were the smallest targets in the app, about
                          28x26 from padding alone. Squared off to the touch
                          minimum; the glyphs are unchanged. -->
-                    <ToggleButton x:Name="MatchCaseButton" Click="MatchCase_Click" AutomationProperties.Name="Match case" ToolTipService.ToolTip="Match case"
-                                  Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                    <ToggleButton x:Name="MatchCaseButton" Grid.Column="2" Click="MatchCase_Click" AutomationProperties.Name="Match case" ToolTipService.ToolTip="Match case"
+                                  Style="{StaticResource IconToggleButtonStyle}">
                         <TextBlock Text="Aa" FontSize="13" />
                     </ToggleButton>
-                    <Button x:Name="FindPrev" Click="FindPrev_Click" AutomationProperties.Name="Previous match" ToolTipService.ToolTip="Previous (Shift+Enter)"
-                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                    <Button x:Name="FindPrev" Grid.Column="3" Click="FindPrev_Click" AutomationProperties.Name="Previous match" ToolTipService.ToolTip="Previous (Shift+Enter)"
+                            Style="{StaticResource IconButtonStyle}">
                         <FontIcon Glyph="&#xE70E;" FontSize="12" />
                     </Button>
-                    <Button x:Name="FindNext" Click="FindNext_Click" AutomationProperties.Name="Next match" ToolTipService.ToolTip="Next (Enter)"
-                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                    <Button x:Name="FindNext" Grid.Column="4" Click="FindNext_Click" AutomationProperties.Name="Next match" ToolTipService.ToolTip="Next (Enter)"
+                            Style="{StaticResource IconButtonStyle}">
                         <FontIcon Glyph="&#xE70D;" FontSize="12" />
                     </Button>
-                    <Button x:Name="FindClose" Click="FindClose_Click" AutomationProperties.Name="Close find bar" ToolTipService.ToolTip="Close (Esc)"
-                            Width="{StaticResource TouchTargetMin}" Height="{StaticResource TouchTargetMin}" Padding="0">
+                    <Button x:Name="FindClose" Grid.Column="5" Click="FindClose_Click" AutomationProperties.Name="Close find bar" ToolTipService.ToolTip="Close (Esc)"
+                            Style="{StaticResource IconButtonStyle}">
                         <FontIcon Glyph="&#xE711;" FontSize="12" />
                     </Button>
-                </StackPanel>
+                </Grid>
                     <ListView x:Name="FindResultsList" Grid.Row="1" Margin="0,6,0,0" MaxHeight="400"
                               IsItemClickEnabled="True" ItemClick="FindResultsList_ItemClick"
                               SelectionMode="Single" ItemContainerStyle="{StaticResource SearchResultItemStyle}">
@@ -682,8 +695,7 @@
                                     <TextBlock Text="{x:Bind Snippet}" TextWrapping="WrapWholeWords" MaxLines="2"
                                                TextTrimming="CharacterEllipsis" />
                                     <TextBlock Grid.Column="1" Text="{x:Bind PageLabel}"
-                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                                               Style="{StaticResource CaptionTextBlockStyle}" />
+                                               Style="{StaticResource CaptionTextStyle}" />
                                 </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>

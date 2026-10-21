@@ -101,8 +101,8 @@
                                 <VisualState x:Name="Unchecked" />
                                 <VisualState x:Name="Checked">
                                     <VisualState.Setters>
-                                        <Setter Target="Root.Background" Value="{ThemeResource AccentFillColorSecondaryBrush}" />
-                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                                        <Setter Target="Root.Background" Value="{ThemeResource SelectedControlBackgroundBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Indeterminate">
@@ -193,6 +193,14 @@
         <Setter Property="Padding" Value="2" />
     </Style>
 
+    <!-- Navigation and page controls belong to the toolbar itself. They do not
+         need a second visible slab behind them; only the editing palette keeps
+         a grouped surface. -->
+    <Style x:Key="ToolbarClusterStyle" TargetType="Border">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="2" />
+    </Style>
+
     <Style x:Key="PanelSurfaceStyle" TargetType="Border">
         <Setter Property="Background" Value="{ThemeResource PanelSurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource SurfaceBorderBrush}" />
@@ -220,15 +228,11 @@
     </Style>
 
     <!-- Sidebar switcher segment: equal-width flat toggle. -->
-    <Style x:Key="SidebarTabStyle" TargetType="ToggleButton">
+    <Style x:Key="SidebarTabStyle" TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">
+        <Setter Property="Width" Value="Auto" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="Height" Value="{StaticResource TouchTargetMin}" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
-        <Setter Property="HorizontalContentAlignment" Value="Center" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
     <!-- Floating overlay surface (zoom pill, find bar). -->
@@ -352,8 +356,8 @@
     </Style>
 
     <Style x:Key="SearchResultItemStyle" TargetType="ListViewItem">
-        <Setter Property="Padding" Value="10,8" />
-        <Setter Property="Margin" Value="4,1" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="Margin" Value="0,1" />
         <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     </Style>
@@ -460,12 +464,12 @@
         <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
     </Style>
 
-    <!-- Page numbers are primary navigation metadata in the outline, not a
-         low-emphasis caption. Keep the column compact but visibly accented. -->
+    <!-- Page numbers are useful metadata, but repeating accent blue down the
+         complete outline competes with the selected row. -->
     <Style x:Key="OutlinePageTextStyle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="{StaticResource TextSecondarySize}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource TextCaptionSize}" />
+        <Setter Property="FontWeight" Value="Normal" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
     </Style>
 
     <!-- A limitation or warning the reader must not skim past. -->
