@@ -77,6 +77,16 @@
                                 Foreground="{TemplateBinding Foreground}"
                                 HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            <Border
+                                x:Name="SelectionIndicator"
+                                Width="16"
+                                Height="2"
+                                Margin="0,0,0,2"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Bottom"
+                                CornerRadius="1"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}"
+                                Opacity="0" />
                         </Grid>
                         <VisualStateManager.VisualStateGroups>
                             <VisualStateGroup x:Name="CommonStates">
@@ -98,16 +108,25 @@
                                 </VisualState>
                             </VisualStateGroup>
                             <VisualStateGroup x:Name="CheckStates">
-                                <VisualState x:Name="Unchecked" />
+                                <VisualState x:Name="Unchecked">
+                                    <VisualState.Setters>
+                                        <Setter Target="Root.Background" Value="Transparent" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                                        <Setter Target="SelectionIndicator.Opacity" Value="0" />
+                                    </VisualState.Setters>
+                                </VisualState>
                                 <VisualState x:Name="Checked">
                                     <VisualState.Setters>
                                         <Setter Target="Root.Background" Value="{ThemeResource SelectedControlBackgroundBrush}" />
                                         <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="SelectionIndicator.Opacity" Value="1" />
                                     </VisualState.Setters>
                                 </VisualState>
                                 <VisualState x:Name="Indeterminate">
                                     <VisualState.Setters>
                                         <Setter Target="Root.Background" Value="{ThemeResource AccentFillColorTertiaryBrush}" />
+                                        <Setter Target="Presenter.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                        <Setter Target="SelectionIndicator.Opacity" Value="1" />
                                     </VisualState.Setters>
                                 </VisualState>
                             </VisualStateGroup>
@@ -464,12 +483,11 @@
         <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
     </Style>
 
-    <!-- Page numbers are useful metadata, but repeating accent blue down the
-         complete outline competes with the selected row. -->
+    <!-- Page numbers are primary navigation metadata in the outline. -->
     <Style x:Key="OutlinePageTextStyle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="{StaticResource TextCaptionSize}" />
-        <Setter Property="FontWeight" Value="Normal" />
-        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource TextSecondarySize}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}" />
     </Style>
 
     <!-- A limitation or warning the reader must not skim past. -->

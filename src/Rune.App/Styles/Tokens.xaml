@@ -13,7 +13,7 @@
             <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#FAFFFFFF" />
             <SolidColorBrush x:Key="OverlaySurfaceBrush" Color="#FFFFFFFF" />
             <SolidColorBrush x:Key="SurfaceBorderBrush" Color="#24000000" />
-            <SolidColorBrush x:Key="SelectedControlBackgroundBrush" Color="#160060C0" />
+            <SolidColorBrush x:Key="SelectedControlBackgroundBrush" Color="#220060C0" />
             <SolidColorBrush x:Key="HomeButtonBackgroundBrush" Color="#FFC42B1C" />
             <SolidColorBrush x:Key="HomeButtonHoverBrush" Color="#FFD13B2C" />
             <SolidColorBrush x:Key="HomeButtonPressedBrush" Color="#FFAC2015" />
@@ -26,7 +26,7 @@
             <SolidColorBrush x:Key="PanelSurfaceBrush" Color="#FA303030" />
             <SolidColorBrush x:Key="OverlaySurfaceBrush" Color="#FF303030" />
             <SolidColorBrush x:Key="SurfaceBorderBrush" Color="#32FFFFFF" />
-            <SolidColorBrush x:Key="SelectedControlBackgroundBrush" Color="#2860CDFF" />
+            <SolidColorBrush x:Key="SelectedControlBackgroundBrush" Color="#3860CDFF" />
             <SolidColorBrush x:Key="HomeButtonBackgroundBrush" Color="#FFD7473B" />
             <SolidColorBrush x:Key="HomeButtonHoverBrush" Color="#FFE45B50" />
             <SolidColorBrush x:Key="HomeButtonPressedBrush" Color="#FFBC342A" />
