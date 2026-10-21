@@ -1341,9 +1341,9 @@ public sealed partial class DocumentView : UserControl
     private void ShowSidebar(SidebarPane pane)
     {
         _activePane = pane;
-        ThumbsTab.IsChecked = pane == SidebarPane.Thumbnails;
-        OutlineTab.IsChecked = pane == SidebarPane.Chapters;
-        BookmarksTab.IsChecked = pane == SidebarPane.Bookmarks;
+        SetSidebarToggleState(ThumbsTab, pane == SidebarPane.Thumbnails);
+        SetSidebarToggleState(OutlineTab, pane == SidebarPane.Chapters);
+        SetSidebarToggleState(BookmarksTab, pane == SidebarPane.Bookmarks);
 
         ThumbList.Visibility = pane == SidebarPane.Thumbnails ? Visibility.Visible : Visibility.Collapsed;
         OutlineTree.Visibility = pane == SidebarPane.Chapters && _hasOutline ? Visibility.Visible : Visibility.Collapsed;
@@ -1352,5 +1352,13 @@ public sealed partial class DocumentView : UserControl
         bool hasBookmarks = _bookmarks.Count > 0;
         BookmarkList.Visibility = pane == SidebarPane.Bookmarks && hasBookmarks ? Visibility.Visible : Visibility.Collapsed;
         NoBookmarksLabel.Visibility = pane == SidebarPane.Bookmarks && !hasBookmarks ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static void SetSidebarToggleState(
+        Microsoft.UI.Xaml.Controls.Primitives.ToggleButton button,
+        bool isChecked)
+    {
+        button.IsChecked = isChecked;
+        VisualStateManager.GoToState(button, isChecked ? "Checked" : "Unchecked", false);
     }
 }

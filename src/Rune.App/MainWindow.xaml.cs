@@ -943,13 +943,27 @@ public sealed partial class MainWindow : Window
     /// <summary>Reflects the armed tool onto the cluster. Never sets it.</summary>
     private void SyncToolButtons(AnnotationTool tool)
     {
-        PenToolButton.IsChecked = tool == AnnotationTool.Pen;
-        HighlighterToolButton.IsChecked = tool == AnnotationTool.Highlighter;
-        NoteToolButton.IsChecked = tool == AnnotationTool.Note;
-        TextToolButton.IsChecked = tool == AnnotationTool.Text;
-        ImageToolButton.IsChecked = tool == AnnotationTool.Image;
-        SignToolButton.IsChecked = tool == AnnotationTool.Signature;
-        EraserToolButton.IsChecked = tool == AnnotationTool.Eraser;
+        SetToggleState(PenToolButton, tool == AnnotationTool.Pen);
+        SetToggleState(HighlighterToolButton, tool == AnnotationTool.Highlighter);
+        SetToggleState(NoteToolButton, tool == AnnotationTool.Note);
+        SetToggleState(TextToolButton, tool == AnnotationTool.Text);
+        SetToggleState(ImageToolButton, tool == AnnotationTool.Image);
+        SetToggleState(SignToolButton, tool == AnnotationTool.Signature);
+        SetToggleState(EraserToolButton, tool == AnnotationTool.Eraser);
+    }
+
+    /// <summary>
+    /// Keeps the custom toggle template in lockstep with the logical state.
+    /// WinUI can leave a templated ToggleButton in its previous CheckStates
+    /// visual after another button is unchecked programmatically, which made
+    /// every tool that had ever been clicked continue to look selected.
+    /// </summary>
+    private static void SetToggleState(
+        Microsoft.UI.Xaml.Controls.Primitives.ToggleButton button,
+        bool isChecked)
+    {
+        button.IsChecked = isChecked;
+        VisualStateManager.GoToState(button, isChecked ? "Checked" : "Unchecked", false);
     }
 
     /// <summary>
