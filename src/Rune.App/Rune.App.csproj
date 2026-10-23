@@ -10,7 +10,7 @@
     <!-- Keep the executable icon on a distinct asset path so incremental
          app-host builds cannot reuse the retired Rune icon resource. -->
     <ApplicationIcon>Assets\RunePdf.ico</ApplicationIcon>
-    <Version>0.8.0</Version>
+    <Version>0.8.1</Version>
     <Platforms>x64;ARM64</Platforms>
     <!-- The RID must follow Platform, or a multi-arch Store bundle builds the
          ARM64 leg with win-x64 and fails (NETSDK1032). -->
