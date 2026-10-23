@@ -28,6 +28,30 @@ public sealed class UndoStack<TEdit> where TEdit : class, IUndoableEdit
     public string? UndoLabel => CanUndo ? _undo[^1].Label : null;
     public string? RedoLabel => CanRedo ? _redo[^1].Label : null;
 
+    public TEdit? PeekUndo() => CanUndo ? _undo[^1] : null;
+
+    public TEdit? PeekRedo() => CanRedo ? _redo[^1] : null;
+
+    public void CommitUndo(TEdit edit)
+    {
+        if (!CanUndo || !ReferenceEquals(_undo[^1], edit))
+        {
+            throw new InvalidOperationException("The undo stack changed before the operation completed.");
+        }
+        _undo.RemoveAt(_undo.Count - 1);
+        _redo.Add(edit);
+    }
+
+    public void CommitRedo(TEdit edit)
+    {
+        if (!CanRedo || !ReferenceEquals(_redo[^1], edit))
+        {
+            throw new InvalidOperationException("The redo stack changed before the operation completed.");
+        }
+        _redo.RemoveAt(_redo.Count - 1);
+        _undo.Add(edit);
+    }
+
     /// <summary>Records a new edit (which has already been executed). Clears the redo branch.</summary>
     public void Push(TEdit edit)
     {

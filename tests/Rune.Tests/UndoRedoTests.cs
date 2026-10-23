@@ -36,6 +36,26 @@ public class UndoStackTests
     }
 
     [Fact]
+    public void Peek_DoesNotMoveEditUntilCommitted()
+    {
+        var stack = new UndoStack<Edit>();
+        var edit = new Edit("a", 0);
+        stack.Push(edit);
+
+        Assert.Same(edit, stack.PeekUndo());
+        Assert.True(stack.CanUndo);
+        Assert.False(stack.CanRedo);
+
+        stack.CommitUndo(edit);
+        Assert.False(stack.CanUndo);
+        Assert.Same(edit, stack.PeekRedo());
+
+        stack.CommitRedo(edit);
+        Assert.Same(edit, stack.PeekUndo());
+        Assert.False(stack.CanRedo);
+    }
+
+    [Fact]
     public void Trim_CapsEditCount()
     {
         var stack = new UndoStack<Edit>();

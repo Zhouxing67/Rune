@@ -15,7 +15,10 @@ public sealed record TileRequest(
     TileKey Key,
     float Scale,
     int SrcX, int SrcY,
-    int WidthPx, int HeightPx);
+    int WidthPx, int HeightPx)
+{
+    public long DocumentGeneration { get; init; }
+}
 
 public static class TileMath
 {

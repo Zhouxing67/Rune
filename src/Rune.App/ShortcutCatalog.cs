@@ -30,6 +30,7 @@ internal static class ShortcutCatalog
             new("Fit width / fit page", "Ctrl+2 / Ctrl+0"),
             new("Rotate right / left", "Ctrl+R / Ctrl+Shift+R"),
             new("Night mode", "Ctrl+I"),
+            new("Show / hide toolbar", "F8"),
             new("Sidebar", "F9"),
             new("Presentation", "F5"),
         ]),

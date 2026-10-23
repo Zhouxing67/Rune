@@ -118,6 +118,7 @@ public sealed partial class PdfViewer : UserControl
     // tiles) with list allocations — running them on every scroll tick is
     // measurable churn).
     private readonly DispatcherQueueTimer _desiredTimer;
+    private readonly DispatcherQueueTimer _feedbackTimer;
 
     // One reusable invert effect for night mode (allocating per tile per draw
     // churns the GC during scrolling).
@@ -340,6 +341,11 @@ public sealed partial class PdfViewer : UserControl
             PrefetchVisiblePageData();
         };
 
+        _feedbackTimer = _dispatcher.CreateTimer();
+        _feedbackTimer.Interval = TimeSpan.FromMilliseconds(1200);
+        _feedbackTimer.IsRepeating = false;
+        _feedbackTimer.Tick += (_, _) => TransientFeedback.Visibility = Visibility.Collapsed;
+
         _citationHoverTimer = _dispatcher.CreateTimer();
         _citationHoverTimer.Interval = TimeSpan.FromMilliseconds(420);
         _citationHoverTimer.IsRepeating = false;
@@ -442,6 +448,7 @@ public sealed partial class PdfViewer : UserControl
     }
 
     private bool _rendererShutdown;
+    private long _documentGeneration;
 
     private double DisplayScale => XamlRoot?.RasterizationScale ?? 1.0;
     private float RenderScale => (float)(_zoom * DisplayScale);
@@ -466,6 +473,7 @@ public sealed partial class PdfViewer : UserControl
     /// <summary>Shows a document (ownership stays with the caller) or clears the view.</summary>
     public void SetDocument(PdfDocument? document)
     {
+        _documentGeneration++;
         // Commit any in-flight field edit before letting go of the old document.
         if (_document is not null && IsFormFieldFocused)
         {
@@ -1477,7 +1485,16 @@ public sealed partial class PdfViewer : UserControl
             var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
             package.SetText(SelectedText);
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            ShowTransientFeedback("Copied");
         }
+    }
+
+    public void ShowTransientFeedback(string message)
+    {
+        TransientFeedbackText.Text = message;
+        TransientFeedback.Visibility = Visibility.Visible;
+        _feedbackTimer.Stop();
+        _feedbackTimer.Start();
     }
 
     // ---------------------------------------------------------------- touch
@@ -1696,7 +1713,7 @@ public sealed partial class PdfViewer : UserControl
         _selection = pageText.GetSelection(start, end);
         _isSelecting = false;
         Canvas.Invalidate();
-        ShowSelectionToolbar();
+        ShowSelectionToolbar(docPoint);
         return true;
     }
 
@@ -2074,7 +2091,7 @@ public sealed partial class PdfViewer : UserControl
             }
             else if (!cancelled && HasSelection)
             {
-                ShowSelectionToolbar();
+                ShowSelectionToolbar(docPoint);
             }
         }
         else
@@ -2318,16 +2335,22 @@ public sealed partial class PdfViewer : UserControl
         var page = _layout.GetPageRect(pageIndex);
         var rotation = RotationFor(pageIndex);
         var drawn = rotation.ToDrawn(new TextRect(info.X, info.Y, info.Width, info.Height));
-        var transform = Canvas.TransformToVisual(this);
-        Point topLeft = transform.TransformPoint(new Point(page.X + drawn.X * _zoom, page.Y + drawn.Y * _zoom));
-        Point bottomRight = transform.TransformPoint(new Point(page.X + (drawn.X + drawn.Width) * _zoom, page.Y + (drawn.Y + drawn.Height) * _zoom));
+        Point topLeft = DocumentToViewportPoint(
+            new Point(page.X + drawn.X * _zoom, page.Y + drawn.Y * _zoom));
+        Point bottomRight = DocumentToViewportPoint(
+            new Point(page.X + (drawn.X + drawn.Width) * _zoom,
+                page.Y + (drawn.Y + drawn.Height) * _zoom));
         MarkupActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double width = MarkupActions.DesiredSize.Width;
-        double height = MarkupActions.DesiredSize.Height;
-        double x = Math.Clamp((topLeft.X + bottomRight.X - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
-        double y = topLeft.Y - height - 6;
-        if (y < 8) y = bottomRight.Y + 6;
-        MarkupActions.Margin = new Thickness(x, Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8)), 0, 0);
+        var anchor = ViewportRect(topLeft, bottomRight);
+        var position = FloatingOverlayPlacement.Place(
+            anchor,
+            MarkupActions.DesiredSize.Width,
+            MarkupActions.DesiredSize.Height,
+            ActualWidth,
+            ActualHeight,
+            FloatingOverlaySide.Above,
+            [anchor]);
+        MarkupActions.Margin = new Thickness(position.X, position.Y, 0, 0);
     }
 
     private async void MarkupActions_ActionRequested(object? sender, MarkupAnnotationActionEventArgs e)
@@ -2759,31 +2782,71 @@ public sealed partial class PdfViewer : UserControl
         }
     }
 
-    private void ShowSelectionToolbar()
+    private void ShowSelectionToolbar(Point? focusDocumentPoint = null)
     {
         if (_selection is not { Rects.Count: > 0 } selection || _layout is null) return;
         var page = _layout.GetPageRect(selection.PageIndex);
-        var drawnRects = selection.Rects.Select(r => RotationFor(selection.PageIndex).ToDrawn(r)).ToList();
-        var transform = Canvas.TransformToVisual(this);
-        Point topLeft = transform.TransformPoint(new Point(
-            page.X + drawnRects.Min(r => r.X) * _zoom,
-            page.Y + drawnRects.Min(r => r.Y) * _zoom));
-        Point bottomRight = transform.TransformPoint(new Point(
-            page.X + drawnRects.Max(r => r.X + r.Width) * _zoom,
-            page.Y + drawnRects.Max(r => r.Y + r.Height) * _zoom));
-        double left = topLeft.X, right = bottomRight.X, top = topLeft.Y, bottom = bottomRight.Y;
+        var rotation = RotationFor(selection.PageIndex);
+        var viewportRects = selection.Rects.Select(rect =>
+        {
+            var drawn = rotation.ToDrawn(rect);
+            Point topLeft = DocumentToViewportPoint(new Point(
+                page.X + drawn.X * _zoom,
+                page.Y + drawn.Y * _zoom));
+            Point bottomRight = DocumentToViewportPoint(new Point(
+                page.X + (drawn.X + drawn.Width) * _zoom,
+                page.Y + (drawn.Y + drawn.Height) * _zoom));
+            return new DipRect(
+                Math.Min(topLeft.X, bottomRight.X),
+                Math.Min(topLeft.Y, bottomRight.Y),
+                Math.Abs(bottomRight.X - topLeft.X),
+                Math.Abs(bottomRight.Y - topLeft.Y));
+        }).ToList();
+
+        Point focus = focusDocumentPoint is { } documentPoint
+            ? DocumentToViewportPoint(documentPoint)
+            : new Point(viewportRects[0].X + viewportRects[0].Width / 2,
+                viewportRects[0].Y + viewportRects[0].Height / 2);
+        DipRect anchor = viewportRects.MinBy(rect => DistanceSquaredTo(rect, focus));
+
         // The overlay is normally Collapsed, so ActualWidth can still be zero
         // on first show. Measure the real capsule instead of positioning with a
         // stale guessed width; otherwise it visibly drifts on DPI/theme changes.
         SelectionActions.Visibility = Visibility.Visible;
         SelectionActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double width = SelectionActions.DesiredSize.Width;
-        double height = SelectionActions.DesiredSize.Height;
-        double x = Math.Clamp((left + right - width) / 2, 8, Math.Max(8, ActualWidth - width - 8));
-        double y = top - height - 6;
-        if (y < 8) y = bottom + 6;
-        y = Math.Clamp(y, 8, Math.Max(8, ActualHeight - height - 8));
-        SelectionActions.Margin = new Thickness(x, y, 0, 0);
+        var position = FloatingOverlayPlacement.Place(
+            anchor,
+            SelectionActions.DesiredSize.Width,
+            SelectionActions.DesiredSize.Height,
+            ActualWidth,
+            ActualHeight,
+            FloatingOverlaySide.Above,
+            viewportRects);
+        SelectionActions.Margin = new Thickness(position.X, position.Y, 0, 0);
+    }
+
+    /// <summary>
+    /// Converts layout/document coordinates into the sibling overlay's viewport
+    /// coordinates. TransformToVisual is not reliable for ScrollViewer content:
+    /// it can omit the live offsets maintained by the scrolling presenter.
+    /// </summary>
+    private Point DocumentToViewportPoint(Point documentPoint) => new(
+        documentPoint.X * Scroller.ZoomFactor - Scroller.HorizontalOffset,
+        documentPoint.Y * Scroller.ZoomFactor - Scroller.VerticalOffset);
+
+    private static DipRect ViewportRect(Point first, Point second) => new(
+        Math.Min(first.X, second.X),
+        Math.Min(first.Y, second.Y),
+        Math.Abs(second.X - first.X),
+        Math.Abs(second.Y - first.Y));
+
+    private static double DistanceSquaredTo(DipRect rect, Point point)
+    {
+        double dx = point.X < rect.X ? rect.X - point.X
+            : point.X > rect.X + rect.Width ? point.X - rect.X - rect.Width : 0;
+        double dy = point.Y < rect.Y ? rect.Y - point.Y
+            : point.Y > rect.Y + rect.Height ? point.Y - rect.Y - rect.Height : 0;
+        return dx * dx + dy * dy;
     }
 
     private void HideSelectionToolbar() => SelectionActions.Visibility = Visibility.Collapsed;
@@ -2906,28 +2969,23 @@ public sealed partial class PdfViewer : UserControl
     {
         if (_layout is null) return;
 
-        var transform = Canvas.TransformToVisual(this);
-        Point linkTopLeft = transform.TransformPoint(ToDocumentPoint(sourcePage, link.X, link.Y));
-        Point linkBottomRight = transform.TransformPoint(
+        Point linkTopLeft = DocumentToViewportPoint(ToDocumentPoint(sourcePage, link.X, link.Y));
+        Point linkBottomRight = DocumentToViewportPoint(
             ToDocumentPoint(sourcePage, link.X + link.Width, link.Y + link.Height));
 
         CitationPreview.Visibility = Visibility.Visible;
         CitationPreview.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        double width = CitationPreview.DesiredSize.Width;
-        double height = CitationPreview.DesiredSize.Height;
-        double left = Math.Min(linkTopLeft.X, linkBottomRight.X);
-        double right = Math.Max(linkTopLeft.X, linkBottomRight.X);
-        double top = Math.Min(linkTopLeft.Y, linkBottomRight.Y);
-        double bottom = Math.Max(linkTopLeft.Y, linkBottomRight.Y);
-
-        double x = Math.Clamp((left + right - width) / 2, 10, Math.Max(10, ActualWidth - width - 10));
-        double y = bottom + 8;
-        if (y + height > ActualHeight - 10)
-        {
-            y = top - height - 8;
-        }
-        y = Math.Clamp(y, 10, Math.Max(10, ActualHeight - height - 10));
-        CitationPreview.Margin = new Thickness(x, y, 0, 0);
+        var anchor = ViewportRect(linkTopLeft, linkBottomRight);
+        var position = FloatingOverlayPlacement.Place(
+            anchor,
+            CitationPreview.DesiredSize.Width,
+            CitationPreview.DesiredSize.Height,
+            ActualWidth,
+            ActualHeight,
+            FloatingOverlaySide.Below,
+            [anchor],
+            edge: 10);
+        CitationPreview.Margin = new Thickness(position.X, position.Y, 0, 0);
     }
 
     private void ScheduleCitationDismiss()
@@ -3318,7 +3376,10 @@ public sealed partial class PdfViewer : UserControl
                         continue;
                     }
 
-                    var request = new TileRequest(key, scale, srcX, srcY, w, h);
+                    var request = new TileRequest(key, scale, srcX, srcY, w, h)
+                    {
+                        DocumentGeneration = _documentGeneration,
+                    };
                     (tileRect.Intersects(viewport) ? visible : prefetch).Add(request);
                 }
             }
@@ -3339,7 +3400,10 @@ public sealed partial class PdfViewer : UserControl
                 var (pw, ph) = _document.GetPagePixelSize(i, previewScale, _rotation);
                 previews.Add(new TileRequest(
                     new TileKey(i, wantedPreviewKey, _rotation, 0, 0, IsPreview: true),
-                    previewScale, 0, 0, pw, ph));
+                    previewScale, 0, 0, pw, ph)
+                {
+                    DocumentGeneration = _documentGeneration,
+                });
             }
         }
 
@@ -3375,7 +3439,9 @@ public sealed partial class PdfViewer : UserControl
         // arriving, so leaving the key marked would make UpdateDesiredTiles
         // re-request this tile on every single pass, starving the tiles that
         // are actually on screen.
-        if (_document is null || _layout is null || request.Key.Rotation != _rotation)
+        if (_document is null || _layout is null ||
+            request.DocumentGeneration != _documentGeneration ||
+            request.Key.Rotation != _rotation)
         {
             DebugLog($"DROP rot-mismatch key={request.Key} cur_rot={_rotation}");
             ForgetStale(request.Key);

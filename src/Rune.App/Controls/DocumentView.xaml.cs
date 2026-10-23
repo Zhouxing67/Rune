@@ -27,6 +27,7 @@ public sealed partial class DocumentView : UserControl
     private int _lifetimeGeneration;
     private bool _closed;
     private bool _syncingSelection;
+    private string? _recoveryPath;
     private List<OutlineNode> _outlineNodes = [];
     private List<OutlineNode> _flatOutlineNodes = [];
     private List<OutlineNode> _outlineTargets = [];
@@ -233,7 +234,16 @@ public sealed partial class DocumentView : UserControl
         {
             // The renderer has joined its worker, so no queued operation can
             // still touch this document. Dispose away from the UI thread.
-            _ = Task.Run(document.Dispose);
+            string? recoveryPath = _recoveryPath;
+            _recoveryPath = null;
+            _ = Task.Run(() =>
+            {
+                document.Dispose();
+                if (recoveryPath is not null)
+                {
+                    TryDeleteFile(recoveryPath);
+                }
+            });
         }
     }
 
@@ -275,7 +285,9 @@ public sealed partial class DocumentView : UserControl
     {
         if (_document is not { IsDirty: true } document) return;
 
-        string tmp = FilePath + ".saving";
+        string directory = Path.GetDirectoryName(FilePath) ?? ".";
+        string tmp = Path.Combine(directory,
+            $".{Path.GetFileName(FilePath)}.{Guid.NewGuid():N}.saving");
         await RunPdfAsync(PdfWorkPriority.Interactive, () => document.SaveAs(tmp));
 
         double zoom = Viewer.Zoom;
@@ -286,13 +298,18 @@ public sealed partial class DocumentView : UserControl
         await RunPdfAsync(PdfWorkPriority.Interactive, document.Dispose); // takes the PDFium lock — keep it off the UI thread
         _document = null;
 
+        string? previousRecovery = _recoveryPath;
         try
         {
             File.Move(tmp, FilePath, overwrite: true);
+            _recoveryPath = null;
         }
         catch
         {
-            try { File.Delete(tmp); } catch { }
+            // This copy is now the only file containing the user's edits.
+            // Keep it and reopen it below so a failed replace never reverts
+            // the live document to the unmodified destination.
+            _recoveryPath = tmp;
             throw;
         }
         finally
@@ -301,12 +318,27 @@ public sealed partial class DocumentView : UserControl
             // reopen gives every page a fresh identity, so undo edits recorded
             // against the old document no longer apply — drop the history.
             ClearUndoHistory();
-            _document = await RunPdfAsync(PdfWorkPriority.Interactive, () => PdfDocument.Open(FilePath));
+            string reopenPath = _recoveryPath ?? FilePath;
+            _document = await RunPdfAsync(PdfWorkPriority.Interactive, () => PdfDocument.Open(reopenPath));
+            if (_recoveryPath is not null)
+            {
+                _document.MarkDirty();
+            }
             Viewer.SetDocument(_document);
             Viewer.RestoreView(zoom, rotation, fraction);
             PopulateThumbnails(_document);
             _ = PopulateOutlineAsync(_document);
+            if (previousRecovery is not null &&
+                !string.Equals(previousRecovery, _recoveryPath, StringComparison.OrdinalIgnoreCase))
+            {
+                TryDeleteFile(previousRecovery);
+            }
         }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try { File.Delete(path); } catch { }
     }
 
     public async Task SaveCopyAsync(string path)
@@ -915,10 +947,14 @@ public sealed partial class DocumentView : UserControl
         {
             return;
         }
-        var edit = _undoStack.PopUndo();
+        var edit = _undoStack.PeekUndo();
         if (edit is not null)
         {
-            await ApplyEditAsync(edit, edit.UndoAction, edit.BookmarksBefore);
+            if (await ApplyEditAsync(edit, edit.UndoAction, edit.BookmarksBefore))
+            {
+                _undoStack.CommitUndo(edit);
+                UndoStateChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
@@ -928,19 +964,23 @@ public sealed partial class DocumentView : UserControl
         {
             return;
         }
-        var edit = _undoStack.PopRedo();
+        var edit = _undoStack.PeekRedo();
         if (edit is not null)
         {
-            await ApplyEditAsync(edit, edit.RedoAction, edit.BookmarksAfter);
+            if (await ApplyEditAsync(edit, edit.RedoAction, edit.BookmarksAfter))
+            {
+                _undoStack.CommitRedo(edit);
+                UndoStateChanged?.Invoke(this, EventArgs.Empty);
+            }
         }
     }
 
-    private async Task ApplyEditAsync(DocumentEdit edit, Action<PdfDocument> action,
+    private async Task<bool> ApplyEditAsync(DocumentEdit edit, Action<PdfDocument> action,
         IReadOnlyList<Rune.Services.BookmarkEntry>? bookmarks)
     {
         if (_document is not { } document)
         {
-            return;
+            return false;
         }
         _pageOpRunning = true;
         try
@@ -976,10 +1016,12 @@ public sealed partial class DocumentView : UserControl
                 Viewer.InvalidatePage(edit.PageIndex);
             }
             PagesEdited?.Invoke(this, EventArgs.Empty);
+            return true;
         }
         catch (Exception ex) when (ex is Rune.PdfiumInterop.PdfiumException or InvalidOperationException)
         {
             PageOpFailed?.Invoke(this, ex.Message);
+            return false;
         }
         finally
         {

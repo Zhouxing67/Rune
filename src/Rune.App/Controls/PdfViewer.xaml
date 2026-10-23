@@ -89,5 +89,17 @@
                            SaveRequested="NotePopup_SaveRequested"
                            DeleteRequested="NotePopup_DeleteRequested"
                            CloseRequested="NotePopup_CloseRequested" />
+
+        <Border
+            x:Name="TransientFeedback"
+            Visibility="Collapsed"
+            IsHitTestVisible="False"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Bottom"
+            Margin="0,0,0,28"
+            Padding="14,8"
+            Style="{StaticResource OverlayPillStyle}">
+            <TextBlock x:Name="TransientFeedbackText" />
+        </Border>
     </Grid>
 </UserControl>

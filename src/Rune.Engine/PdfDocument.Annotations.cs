@@ -680,4 +680,7 @@ public sealed partial class PdfDocument
 
     /// <summary>Marks the document clean after a successful save-in-place swap.</summary>
     public void MarkSaved() => IsDirty = false;
+
+    /// <summary>Marks a recovered save copy as still needing to replace its logical destination.</summary>
+    public void MarkDirty() => IsDirty = true;
 }

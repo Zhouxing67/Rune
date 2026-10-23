@@ -79,7 +79,8 @@
         <!-- Reader toolbar: three real layout regions. The central tool group
              participates in Grid measurement and can no longer overlap the
              navigation groups at narrower widths. -->
-        <Border Grid.Row="1"
+        <Border x:Name="ToolbarHost"
+                Grid.Row="1"
                 Margin="{StaticResource ConnectedChromeMargin}"
                 Style="{StaticResource ChromeSurfaceStyle}">
         <Grid
@@ -128,7 +129,8 @@
                     IsEnabled="False"
                     MinWidth="52"
                     VerticalAlignment="Center"
-                    ValueChanged="PageBox_ValueChanged" />
+                    KeyDown="PageBox_KeyDown"
+                    LostFocus="PageBox_LostFocus" />
                 <TextBlock
                     x:Name="PageCountLabel"
                     VerticalAlignment="Center"

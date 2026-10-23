@@ -32,6 +32,7 @@ public sealed partial class MainWindow : Window
 
     private PdfViewer? _activeViewer;
     private bool _suppressPageBox;
+    private bool _skipNextPageBoxLostFocus;
     private bool _restoringSession;
     private bool _suppressTabSelection;
     private long _tabSelectionGeneration;
@@ -782,8 +783,9 @@ public sealed partial class MainWindow : Window
         DocHost.Visibility = showDocument ? Visibility.Visible : Visibility.Collapsed;
         // The document header + zoom pill are meaningless on the start page
         // (and would show stale page/zoom from a document you aren't looking at).
-        Toolbar.Visibility = showDocument ? Visibility.Visible : Visibility.Collapsed;
-        ZoomPill.Visibility = showDocument ? Visibility.Visible : Visibility.Collapsed;
+        bool showReaderChrome = showDocument && _state.Settings.ToolbarVisible;
+        ToolbarHost.Visibility = showReaderChrome ? Visibility.Visible : Visibility.Collapsed;
+        ZoomPill.Visibility = showReaderChrome ? Visibility.Visible : Visibility.Collapsed;
         if (!hasTabs)
         {
             Title = "Rune";
@@ -846,6 +848,10 @@ public sealed partial class MainWindow : Window
     {
         ZoomLabel.Text = $"{Math.Round(zoom * 100)}%";
         UpdateFitToggles();
+        if (!_state.Settings.ToolbarVisible && CurrentView is { IsDocumentLoaded: true })
+        {
+            _activeViewer?.ShowTransientFeedback($"{Math.Round(zoom * 100)}%");
+        }
     }
 
     private void Viewer_HistoryChanged(object? sender, EventArgs e) => UpdateHistoryButtons();
@@ -1147,12 +1153,60 @@ public sealed partial class MainWindow : Window
         FitPageItem.IsChecked = fitPage;     // ToggleButton.IsChecked is bool? — assign separately
     }
 
-    private void PageBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
+    private void PageBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (!_suppressPageBox && _activeViewer is not null && !double.IsNaN(args.NewValue))
+        if (e.Key == VirtualKey.Enter)
         {
-            _activeViewer.GoToPage((int)args.NewValue - 1, recordHistory: true);
+            CommitPageBox();
+            // Moving focus commits the NumberBox too. Ignore that one LostFocus
+            // so Enter creates exactly one navigation-history entry.
+            _skipNextPageBoxLostFocus = true;
+            if (_activeViewer?.Focus(FocusState.Programmatic) != true)
+            {
+                _skipNextPageBoxLostFocus = false;
+            }
+            e.Handled = true;
         }
+        else if (e.Key == VirtualKey.Escape)
+        {
+            RestorePageBox();
+            _activeViewer?.Focus(FocusState.Programmatic);
+            e.Handled = true;
+        }
+    }
+
+    private void PageBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_skipNextPageBoxLostFocus)
+        {
+            _skipNextPageBoxLostFocus = false;
+            return;
+        }
+        CommitPageBox();
+    }
+
+    private void CommitPageBox()
+    {
+        if (_suppressPageBox || _activeViewer is null || double.IsNaN(PageBox.Value))
+        {
+            RestorePageBox();
+            return;
+        }
+
+        int target = Math.Clamp((int)Math.Round(PageBox.Value), 1, _activeViewer.PageCount);
+        if (target - 1 != _activeViewer.CurrentPage)
+        {
+            _activeViewer.GoToPage(target - 1, recordHistory: true);
+        }
+        RestorePageBox(target);
+    }
+
+    private void RestorePageBox(int? pageNumber = null)
+    {
+        if (_activeViewer is null) return;
+        _suppressPageBox = true;
+        PageBox.Value = pageNumber ?? _activeViewer.CurrentPage + 1;
+        _suppressPageBox = false;
     }
 
     private async void Viewer_LinkActivated(object? sender, string uri)
@@ -2056,6 +2110,46 @@ public sealed partial class MainWindow : Window
 
     // ---------------------------------------------------------------- accelerators
 
+    private void ToggleToolbarVisibility()
+    {
+        if (_workspaceMode != WorkspaceMode.Document || Presentation.IsActive)
+        {
+            return;
+        }
+
+        bool hiding = _state.Settings.ToolbarVisible;
+        bool focusWasInToolbar = hiding && IsVisualDescendantOf(
+            FocusManager.GetFocusedElement(Content.XamlRoot) as DependencyObject, ToolbarHost);
+
+        _state.Settings.ToolbarVisible = !hiding;
+        _store.Save(_state);
+        UpdateStartPageVisibility();
+        _activeViewer?.ShowTransientFeedback(hiding
+            ? "Toolbar hidden · F8 to show"
+            : "Toolbar shown");
+
+        // Collapsing a focused control can leave keyboard focus on an invisible
+        // element. Hand it back to the document without changing its tool,
+        // selection, page, zoom, search, sidebar or navigation history.
+        if (focusWasInToolbar)
+        {
+            _activeViewer?.Focus(FocusState.Programmatic);
+        }
+    }
+
+    private static bool IsVisualDescendantOf(DependencyObject? node, DependencyObject ancestor)
+    {
+        while (node is not null)
+        {
+            if (ReferenceEquals(node, ancestor))
+            {
+                return true;
+            }
+            node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node);
+        }
+        return false;
+    }
+
     private void RegisterAccelerators()
     {
         AddAccelerator(VirtualKey.Add, VirtualKeyModifiers.Control, () => _activeViewer?.ZoomIn());
@@ -2096,6 +2190,7 @@ public sealed partial class MainWindow : Window
         AddAccelerator((VirtualKey)0xBF, VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift,
             () => _ = ShowShortcutsAsync(), requiresDocument: false);
         AddAccelerator(VirtualKey.F5, VirtualKeyModifiers.None, TogglePresentation);
+        AddAccelerator(VirtualKey.F8, VirtualKeyModifiers.None, ToggleToolbarVisibility);
         // Escape peels off one layer at a time, outermost first.
         AddAccelerator(VirtualKey.Escape, VirtualKeyModifiers.None, () =>
         {
@@ -2486,8 +2581,8 @@ public sealed partial class MainWindow : Window
 
         var collected = new List<SearchHit>();
         _searchHits = collected;
-        var resultItems = new List<SearchResultItem>();
-        FindResultsList.ItemsSource = resultItems;
+        var resultSlots = new List<SearchResultItem?>();
+        FindResultsList.ItemsSource = Array.Empty<SearchResultItem>();
         _activeHitIndex = -1;
         FindCount.Text = "";
 
@@ -2516,9 +2611,14 @@ public sealed partial class MainWindow : Window
                     {
                         return; // superseded by a newer query
                     }
+                    int firstIndex = collected.Count;
                     collected.AddRange(hits);
+                    while (resultSlots.Count < collected.Count)
+                    {
+                        resultSlots.Add(null);
+                    }
                     viewer.AppendSearchResults(hits);
-                    _ = AppendSearchResultsAsync(viewer, hits, query, resultItems, cts);
+                    _ = AppendSearchResultsAsync(viewer, hits, query, resultSlots, firstIndex, cts);
                     if (_activeHitIndex < 0 && collected.Count > 0)
                     {
                         _activeHitIndex = 0;
@@ -2556,23 +2656,26 @@ public sealed partial class MainWindow : Window
     }
 
     private async Task AppendSearchResultsAsync(PdfViewer viewer, IReadOnlyList<SearchHit> hits,
-        string query, List<SearchResultItem> items, CancellationTokenSource cts)
+        string query, List<SearchResultItem?> slots, int firstIndex, CancellationTokenSource cts)
     {
-        foreach (var hit in hits)
+        for (int i = 0; i < hits.Count; i++)
         {
+            var hit = hits[i];
             string snippet;
             try { snippet = await viewer.GetSearchSnippetAsync(hit, query, cts.Token); }
             catch { snippet = query; }
             if (_searchCts != cts || !ReferenceEquals(_activeViewer, viewer)) return;
-            items.Add(new SearchResultItem(hit, snippet));
+            slots[firstIndex + i] = new SearchResultItem(hit, snippet);
         }
         if (_searchCts == cts)
         {
-            // List<T> is not observable; rebinding in page-sized batches keeps
-            // incremental search cheap even for hundreds of pages.
+            // Page batches can finish out of order. Stable slots keep the
+            // visible list in document order regardless of snippet latency.
+            var visibleItems = slots.OfType<SearchResultItem>().ToList();
             FindResultsList.ItemsSource = null;
-            FindResultsList.ItemsSource = items;
-            FindResultsList.SelectedIndex = _activeHitIndex;
+            FindResultsList.ItemsSource = visibleItems;
+            FindResultsList.SelectedItem = visibleItems.FirstOrDefault(
+                item => _activeHitIndex >= 0 && item.Hit == _searchHits[_activeHitIndex]);
         }
     }
 
@@ -2595,8 +2698,15 @@ public sealed partial class MainWindow : Window
         }
         _activeHitIndex = ((_activeHitIndex + delta) % n + n) % n;
         _activeViewer?.HighlightHit(_searchHits[_activeHitIndex]);
-        FindResultsList.SelectedIndex = _activeHitIndex;
-        FindResultsList.ScrollIntoView(FindResultsList.SelectedItem);
+        if (FindResultsList.ItemsSource is IEnumerable<SearchResultItem> items)
+        {
+            FindResultsList.SelectedItem = items.FirstOrDefault(
+                item => item.Hit == _searchHits[_activeHitIndex]);
+            if (FindResultsList.SelectedItem is not null)
+            {
+                FindResultsList.ScrollIntoView(FindResultsList.SelectedItem);
+            }
+        }
         UpdateFindCount();
     }
 
@@ -2619,6 +2729,7 @@ public sealed partial class MainWindow : Window
             var package = new DataPackage();
             package.SetText(text);
             Clipboard.SetContent(package);
+            _activeViewer?.ShowTransientFeedback("Copied");
         }
     }
 

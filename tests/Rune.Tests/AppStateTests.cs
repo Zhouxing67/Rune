@@ -136,6 +136,28 @@ public class AppStateTests
     }
 
     [Fact]
+    public void ToolbarVisibility_DefaultsOnAndRoundTrips()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "rune-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "state.json"), """{"Settings":{"Theme":"Dark"}}""");
+            var store = new AppStateStore(dir);
+            var state = store.Load();
+            Assert.True(state.Settings.ToolbarVisible);
+
+            state.Settings.ToolbarVisible = false;
+            store.Save(state);
+            Assert.False(new AppStateStore(dir).Load().Settings.ToolbarVisible);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ForgetRecent_AlsoDropsItFromTheRestoreSession()
     {
         var state = new AppState();

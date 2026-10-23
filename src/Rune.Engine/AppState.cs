@@ -52,11 +52,11 @@ public sealed class AppSettings
     // files still carry the keys; System.Text.Json ignores unknown properties,
     // so no migration is needed.
 
-    /// <summary>Show a thumbnail grid of recent documents on the start page.</summary>
-    public bool ShowRecentThumbnails { get; set; } = true;
-
     /// <summary>Open the sidebar (thumbnails/chapters/bookmarks) when a document loads.</summary>
     public bool SidebarOpenByDefault { get; set; } = true;
+
+    /// <summary>Whether the main reader toolbar and floating zoom controls are shown.</summary>
+    public bool ToolbarVisible { get; set; } = true;
 
     /// <summary>Ink pen color as #RRGGBB (default red).</summary>
     /// <remarks>
