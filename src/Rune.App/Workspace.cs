@@ -3,6 +3,8 @@ using Microsoft.UI.Windowing;
 using Microsoft.Windows.AppLifecycle;
 using Rune.Services;
 using Windows.ApplicationModel.Activation;
+using System.Runtime.InteropServices;
+using Rune.Engine;
 
 namespace Rune;
 
@@ -102,10 +104,32 @@ internal static class Workspace
         }
         else if (activation.Data is ILaunchActivatedEventArgs launch)
         {
-            // MSIX file associations arrive as File activation; launch has no
-            // document unless an explicit quoted path was supplied.
-            var path = launch.Arguments.Trim().Trim('"');
-            if (File.Exists(path)) await target.LoadDocumentAsync(path);
+            var command = LaunchCommand.Parse(SplitCommandLine(launch.Arguments), Environment.ProcessPath);
+            foreach (var path in command.Files)
+                if (File.Exists(path))
+                    await target.LoadDocumentAsync(path, command.Page, command.Zoom);
         }
     }
+
+    private static string[] SplitCommandLine(string commandLine)
+    {
+        if (string.IsNullOrWhiteSpace(commandLine)) return [];
+        // Prefix a dummy program name so every real token uses Windows argument
+        // quoting rules, whether activation includes the executable or not.
+        IntPtr argv = CommandLineToArgvW("Rune " + commandLine, out int count);
+        if (argv == IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
+        try
+        {
+            return Enumerable.Range(1, count - 1)
+                .Select(i => Marshal.PtrToStringUni(Marshal.ReadIntPtr(argv, i * IntPtr.Size))!)
+                .ToArray();
+        }
+        finally { LocalFree(argv); }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CommandLineToArgvW(string commandLine, out int count);
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
 }
