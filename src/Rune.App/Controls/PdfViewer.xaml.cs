@@ -2340,6 +2340,10 @@ public sealed partial class PdfViewer : UserControl
         Point bottomRight = DocumentToViewportPoint(
             new Point(page.X + (drawn.X + drawn.Width) * _zoom,
                 page.Y + (drawn.Y + drawn.Height) * _zoom));
+        // DesiredSize includes Margin. Discard the previous placement before
+        // measuring, and make the control visible so it participates in layout.
+        MarkupActions.Margin = new Thickness(0);
+        MarkupActions.Visibility = Visibility.Visible;
         MarkupActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var anchor = ViewportRect(topLeft, bottomRight);
         var position = FloatingOverlayPlacement.Place(
@@ -2812,6 +2816,9 @@ public sealed partial class PdfViewer : UserControl
         // The overlay is normally Collapsed, so ActualWidth can still be zero
         // on first show. Measure the real capsule instead of positioning with a
         // stale guessed width; otherwise it visibly drifts on DPI/theme changes.
+        // Margin stores the previous placement and is included in DesiredSize.
+        // It must not become part of the capsule size on subsequent shows.
+        SelectionActions.Margin = new Thickness(0);
         SelectionActions.Visibility = Visibility.Visible;
         SelectionActions.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var position = FloatingOverlayPlacement.Place(
