@@ -91,11 +91,9 @@ document as `WindowsAppSDK-NOTICE.txt` (see also
 
 ---
 
-## .NET Runtime and CommunityToolkit.Mvvm
+## .NET Runtime
 
 - .NET Runtime — Copyright (c) .NET Foundation and Contributors, MIT License
   (<https://github.com/dotnet/runtime/blob/main/LICENSE.TXT>)
-- CommunityToolkit.Mvvm — Copyright © .NET Foundation and Contributors, MIT
-  License (<https://github.com/CommunityToolkit/dotnet/blob/main/License.md>)
 
 The MIT license text is reproduced in the Win2D section above.

@@ -55,7 +55,7 @@ public partial class App : Application
         MainWindow = window;
 
         // Window/taskbar icon (the exe icon comes from ApplicationIcon in the csproj).
-        string icon = Path.Combine(AppContext.BaseDirectory, "Assets", "rune.ico");
+        string icon = Path.Combine(AppContext.BaseDirectory, "Assets", "RunePdf.ico");
         if (File.Exists(icon))
         {
             window.AppWindow.SetIcon(icon);

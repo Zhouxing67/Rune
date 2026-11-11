@@ -38,7 +38,7 @@
     file. The parse error it produces points at a brace forty lines away.
 
 .EXAMPLE
-    tools/check-package.ps1 artifacts/store/Rune.App_0.8.0.0_x64_arm64_bundle.msixupload
+    tools/check-package.ps1 artifacts/store/Rune.App_0.8.1.0_x64_arm64_bundle.msixupload
 #>
 [CmdletBinding()]
 param(

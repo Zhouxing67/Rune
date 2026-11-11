@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/rune.svg" width="88" alt="">
+<img src="assets/branding/rune-pdf-icon.png" width="88" alt="">
 
 # Rune
 
@@ -46,7 +46,7 @@ No account, no subscription, no telemetry, no ads. Rune contains no networking c
 - Text selection and copy, plus find-in-document with highlight-all and hit stepping
 - Night mode (`Ctrl+I`) for reading in the dark, and presentation mode (`F5`) for showing a document fullscreen
 - A recent-documents homepage laid out as first-page thumbnails, and session restore that reopens your tabs at the exact scroll position
-- Opens damaged PDFs gracefully, and streams 4 GB files without loading them into memory
+- Opens damaged PDFs gracefully, and streams files up to 4 GiB minus one byte without loading them into memory
 
 ### Markup
 
