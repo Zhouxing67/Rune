@@ -10,7 +10,7 @@
 
 [Setup]
 ; Fork-specific identity. Keep this stable across releases.
-AppId={B704D7DB-7779-4858-AB0F-6DB1E504C66C}
+AppId={{B704D7DB-7779-4858-AB0F-6DB1E504C66C}
 AppName=Rune Community
 AppVersion={#AppVersion}
 DefaultDirName={localappdata}\Programs\RuneCommunity
