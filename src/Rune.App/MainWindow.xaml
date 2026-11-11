@@ -51,6 +51,9 @@
                     Margin="0,0,4,0"
                     Style="{StaticResource HomeButtonStyle}"
                     AutomationProperties.Name="Home" ToolTipService.ToolTip="Home — recent documents">
+                    <Button.ContextFlyout>
+                        <MenuFlyout><MenuFlyoutItem Text="New window" Click="NewWindow_Click" /></MenuFlyout>
+                    </Button.ContextFlyout>
                     <FontIcon Glyph="&#xE80F;" FontSize="{StaticResource IconGlyphSize}" Foreground="White" />
                 </Button>
             </TabView.TabStripHeader>
@@ -272,6 +275,7 @@
                 <FontIcon Glyph="&#xE700;" FontSize="{StaticResource IconGlyphSize}" />
                 <Button.Flyout>
                     <MenuFlyout Placement="BottomEdgeAlignedRight">
+                        <MenuFlyoutItem Text="New window" Click="NewWindow_Click" KeyboardAcceleratorTextOverride="Ctrl+N" />
                         <MenuFlyoutItem x:Name="OpenMenuItem" Text="Open…" Click="OpenButton_Click" KeyboardAcceleratorTextOverride="Ctrl+O">
                             <MenuFlyoutItem.Icon>
                                 <FontIcon Glyph="&#xE8E5;" />

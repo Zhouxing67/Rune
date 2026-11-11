@@ -17,13 +17,8 @@ public sealed partial class MainWindow : Window
     private static double Metric(string key) => (double)Application.Current.Resources[key];
     private static Style UiStyle(string key) => (Style)Application.Current.Resources[key];
 
-    // Optional isolated state directory for manual testing. When unset,
-    // AppStateStore uses %LOCALAPPDATA%\Rune.
-    private static readonly string? StateDirOverride =
-        Environment.GetEnvironmentVariable("RUNE_STATE_DIR") is { Length: > 0 } dir ? dir : null;
-
-    private readonly AppStateStore _store = new(StateDirOverride);
     private readonly AppState _state;
+    private readonly SessionState? _initialSession;
     private readonly Dictionary<DocumentView, RecentFile?> _pendingRestore = [];
     private readonly HashSet<DocumentView> _tabLoadFinalized = [];
 
@@ -55,7 +50,7 @@ public sealed partial class MainWindow : Window
     private ShareService? _shareService;
     private DateTime _lastGPress = DateTime.MinValue; // vim "gg" sequence
 
-    public MainWindow()
+    public MainWindow(SessionState? session = null)
     {
         InitializeComponent();
 
@@ -65,7 +60,9 @@ public sealed partial class MainWindow : Window
         SetTitleBar(TitleBarDragArea);
         SizeChanged += (_, _) => UpdateCaptionClearance();
 
-        _state = _store.Load();
+        _state = Workspace.State;
+        _initialSession = session;
+        Workspace.Changed += SharedStateChanged;
         ApplyTheme(_state.Settings.Theme);
 
         // With the theme set to "System", flipping Windows' theme changes
@@ -252,7 +249,7 @@ public sealed partial class MainWindow : Window
 
     private async Task RestoreSessionAsync()
     {
-        if (!_state.Settings.RestoreSession)
+        if (_initialSession is null)
         {
             UpdateStartPageVisibility();
             return;
@@ -261,7 +258,7 @@ public sealed partial class MainWindow : Window
         _restoringSession = true;
         try
         {
-            var paths = _state.Session.OpenPaths.Where(File.Exists).ToList();
+            var paths = _initialSession.OpenPaths.Where(File.Exists).ToList();
             foreach (var path in paths)
             {
                 AddTab(path, _state.FindRecent(path), select: false);
@@ -270,14 +267,14 @@ public sealed partial class MainWindow : Window
             if (Tabs.TabItems.Count > 0)
             {
                 int active = -1;
-                if (!string.IsNullOrWhiteSpace(_state.Session.ActivePath))
+                if (!string.IsNullOrWhiteSpace(_initialSession.ActivePath))
                 {
-                    active = paths.FindIndex(path => string.Equals(
-                        path, _state.Session.ActivePath, StringComparison.OrdinalIgnoreCase));
+                    active = AllDocumentViews().ToList().FindIndex(view =>
+                        DocumentIdentity.Same(view.FilePath, _initialSession.ActivePath));
                 }
                 if (active < 0)
                 {
-                    active = Math.Clamp(_state.Session.ActiveIndex, 0, Tabs.TabItems.Count - 1);
+                    active = Math.Clamp(_initialSession.ActiveIndex, 0, Tabs.TabItems.Count - 1);
                 }
                 Tabs.SelectedIndex = active;
             }
@@ -297,26 +294,37 @@ public sealed partial class MainWindow : Window
     private void MainWindow_Closed(object sender, WindowEventArgs e)
     {
         // Persist each open document's position, then the session itself.
-        var openPaths = new List<string>();
         foreach (var obj in Tabs.TabItems)
         {
             if (obj is TabViewItem { Tag: DocumentView view })
             {
-                openPaths.Add(view.FilePath);
                 CaptureState(view);
                 view.Close();
             }
         }
-        _state.Session = new SessionState
-        {
-            OpenPaths = openPaths,
-            ActiveIndex = Math.Max(0, Tabs.SelectedIndex),
-            ActivePath = CurrentView?.FilePath,
-        };
-        _store.Save(_state);
+        Workspace.Changed -= SharedStateChanged;
+        Workspace.Closing(this);
     }
 
-    private void CaptureState(DocumentView view)
+    internal SessionState GetSession() => new()
+    {
+        OpenPaths = AllDocumentViews().Select(v => v.FilePath).ToList(),
+        ActiveIndex = Math.Max(0, Tabs.SelectedIndex),
+        ActivePath = CurrentView?.FilePath,
+    };
+
+    internal bool ContainsDocument(string path) => AllDocumentViews().Any(v => DocumentIdentity.Same(v.FilePath, path));
+
+    private void SharedStateChanged()
+    {
+        PopulateRecents();
+        ApplyTheme(_state.Settings.Theme);
+        UpdateStartPageVisibility();
+    }
+
+    private void NewWindow_Click(object sender, RoutedEventArgs e) => Workspace.CreateWindow();
+
+    private void CaptureState(DocumentView view, bool markOpened = false)
     {
         if (!view.IsDocumentLoaded || view.LoadError is not null)
         {
@@ -324,7 +332,7 @@ public sealed partial class MainWindow : Window
         }
         var viewer = view.Viewer;
         _state.Remember(view.FilePath, view.DisplayName,
-            viewer.CurrentPage, viewer.Zoom, viewer.ViewRotation, viewer.ScrollFraction);
+            viewer.CurrentPage, viewer.Zoom, viewer.ViewRotation, viewer.ScrollFraction, markOpened);
         // The open view owns the truth about bookmarks while it lives.
         if (_state.FindRecent(view.FilePath) is { } entry)
         {
@@ -336,6 +344,9 @@ public sealed partial class MainWindow : Window
 
     private void AddTab(string path, RecentFile? restore, bool select)
     {
+        path = Path.GetFullPath(path);
+        if (Workspace.IsWriting(path)) throw new IOException("This PDF is being saved. Try opening it again when saving finishes.");
+        if (Workspace.FindOwner(path) is not null) return;
         var view = new DocumentView(path);
         _pendingRestore[view] = restore;
         view.OpenSidebarOnLoad = _state.Settings.SidebarOpenByDefault;
@@ -355,7 +366,7 @@ public sealed partial class MainWindow : Window
             {
                 _state.Settings.SignatureWidthPt = widthPt;
             }
-            _store.Save(_state);
+            Workspace.Save();
         };
         view.SignaturesRead += (_, _) => UpdateToolbarForActive();
         view.Viewer.NoteRequested += Viewer_NoteRequested;
@@ -402,10 +413,22 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            if (_closeInProgress)
+            {
+                ShowError("Finish closing this window before opening another document.");
+                return;
+            }
+            path = Path.GetFullPath(path);
+            if (Workspace.FindOwner(path) is { } owner && owner != this)
+            {
+                Workspace.Activate(owner);
+                owner.OpenOrActivate(path);
+                return;
+            }
             foreach (var obj in Tabs.TabItems)
             {
                 if (obj is TabViewItem { Tag: DocumentView v } tabItem &&
-                    string.Equals(v.FilePath, path, StringComparison.OrdinalIgnoreCase))
+                    DocumentIdentity.Same(v.FilePath, path))
                 {
                     bool alreadySelected = ReferenceEquals(Tabs.SelectedItem, tabItem);
                     Tabs.SelectedItem = tabItem;
@@ -518,8 +541,8 @@ public sealed partial class MainWindow : Window
             // A successfully opened document is recent immediately. Waiting
             // until window close loses the entry on a crash and leaves Home
             // stale for the whole session.
-            CaptureState(view);
-            _store.Save(_state);
+            CaptureState(view, markOpened: true);
+            Workspace.Save();
             PopulateRecents();
         }
         if (view.LoadError is { } error && view == CurrentView)
@@ -544,7 +567,7 @@ public sealed partial class MainWindow : Window
         if (entry is not null)
         {
             entry.Bookmarks = view.GetBookmarks();
-            _store.Save(_state);
+            Workspace.Save();
         }
     }
 
@@ -688,6 +711,7 @@ public sealed partial class MainWindow : Window
         {
             _suppressTabSelection = false;
         }
+        Workspace.Save();
         UpdateStartPageVisibility();
     }
 
@@ -1416,12 +1440,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        if (string.Equals(file.Path, view.FilePath, StringComparison.OrdinalIgnoreCase))
+        if (DocumentIdentity.Same(file.Path, view.FilePath))
         {
             await SaveActiveAsync(); // picked the same file: in-place save
             return;
         }
 
+        if (Workspace.FindOwner(file.Path) is not null)
+        {
+            ShowError("This PDF is already open. Close it before replacing it.");
+            return;
+        }
         try
         {
             await view.SaveCopyAsync(file.Path);
@@ -1483,12 +1512,17 @@ public sealed partial class MainWindow : Window
 
         // Writing over the document being read from would pull the file out from
         // under the open handle mid-export.
-        if (string.Equals(file.Path, view.FilePath, StringComparison.OrdinalIgnoreCase))
+        if (DocumentIdentity.Same(file.Path, view.FilePath))
         {
             ShowError("Pick a different file: extracting over the open document would overwrite it.");
             return;
         }
 
+        if (Workspace.FindOwner(file.Path) is not null)
+        {
+            ShowError("This PDF is already open. Close it before replacing it.");
+            return;
+        }
         int count = view.SelectedPageCount;
         if (await view.ExtractSelectedPagesAsync(file.Path))
         {
@@ -1807,7 +1841,7 @@ public sealed partial class MainWindow : Window
             _state.Settings.SidebarOpenByDefault = sidebarCheck.IsChecked == true;
             _state.Settings.VimKeys = vimCheck.IsChecked == true;
             ApplyTheme(_state.Settings.Theme);
-            _store.Save(_state);
+            Workspace.Save();
         }
     }
 
@@ -2035,7 +2069,7 @@ public sealed partial class MainWindow : Window
         }
 
         _state.ForgetRecent(card.Path);
-        _store.Save(_state);
+        Workspace.Save();
         PopulateRecents();
     }
 
@@ -2051,7 +2085,7 @@ public sealed partial class MainWindow : Window
             {
                 ShowError($"File not found: {card.Path}");
                 _state.ForgetRecent(card.Path);
-                _store.Save(_state);
+                Workspace.Save();
                 PopulateRecents();
             }
         }
@@ -2085,7 +2119,7 @@ public sealed partial class MainWindow : Window
         forget.Click += (_, _) =>
         {
             _state.ForgetRecent(card.Path);
-            _store.Save(_state);
+            Workspace.Save();
             PopulateRecents();
         };
 
@@ -2093,11 +2127,25 @@ public sealed partial class MainWindow : Window
         forgetAll.Click += (_, _) =>
         {
             _state.ForgetAllRecents();
-            _store.Save(_state);
+            Workspace.Save();
             PopulateRecents();
         };
 
         var flyout = new MenuFlyout();
+        var openWindow = new MenuFlyoutItem { Text = "Open in new window" };
+        openWindow.Click += async (_, _) =>
+        {
+            try
+            {
+                var owner = Workspace.FindOwner(card.Path);
+                var window = owner ?? Workspace.CreateWindow();
+                Workspace.Activate(window);
+                await window.LoadDocumentAsync(card.Path);
+            }
+            catch (Exception ex) { ShowError(ex.Message); }
+        };
+        flyout.Items.Add(openWindow);
+        flyout.Items.Add(new MenuFlyoutSeparator());
         flyout.Items.Add(forget);
         flyout.Items.Add(new MenuFlyoutSeparator());
         flyout.Items.Add(forgetAll);
@@ -2119,7 +2167,7 @@ public sealed partial class MainWindow : Window
             FocusManager.GetFocusedElement(Content.XamlRoot) as DependencyObject, ToolbarHost);
 
         _state.Settings.ToolbarVisible = !hiding;
-        _store.Save(_state);
+        Workspace.Save();
         UpdateStartPageVisibility();
         _activeViewer?.ShowTransientFeedback(hiding
             ? "Toolbar hidden · F8 to show"
@@ -2158,6 +2206,7 @@ public sealed partial class MainWindow : Window
         AddAccelerator(VirtualKey.Number2, VirtualKeyModifiers.Control, () => SetFitMode(FitMode.FitWidth));
         AddAccelerator(VirtualKey.Left, VirtualKeyModifiers.Menu, () => _activeViewer?.GoBack());
         AddAccelerator(VirtualKey.Right, VirtualKeyModifiers.Menu, () => _activeViewer?.GoForward());
+        AddAccelerator(VirtualKey.N, VirtualKeyModifiers.Control, () => Workspace.CreateWindow());
         AddAccelerator(VirtualKey.W, VirtualKeyModifiers.Control, CloseCurrentTab);
         AddAccelerator(VirtualKey.F, VirtualKeyModifiers.Control, ShowFindBar);
         AddAccelerator(VirtualKey.F3, VirtualKeyModifiers.None, () => StepHit(+1));
@@ -2737,6 +2786,12 @@ public sealed partial class MainWindow : Window
         if (!File.Exists(path))
         {
             ShowError($"File not found: {path}");
+            return;
+        }
+        if (Workspace.FindOwner(path) is { } owner && owner != this)
+        {
+            Workspace.Activate(owner);
+            await owner.LoadDocumentAsync(path, initialPage, initialZoom);
             return;
         }
         OpenOrActivate(path);

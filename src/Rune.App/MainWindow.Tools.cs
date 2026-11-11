@@ -221,7 +221,7 @@ public sealed partial class MainWindow
             swatch.Click += (_, _) =>
             {
                 StyleFor(tool).Color = hex;
-                _store.Save(_state);
+                Workspace.Save();
                 ApplyToolStylesToAll(tool);
             };
             panel.Swatches.Add((hex, ring));
@@ -247,7 +247,7 @@ public sealed partial class MainWindow
                 button.Click += (s, _) =>
                 {
                     StyleFor(tool).Markup = value;
-                    _store.Save(_state);
+                    Workspace.Save();
                     // Mutually exclusive: re-check only the chosen one.
                     foreach (var other in kinds.Children.OfType<ToggleButton>())
                     {
@@ -281,7 +281,7 @@ public sealed partial class MainWindow
             size.ValueChanged += (_, e) =>
             {
                 StyleFor(tool).Size = e.NewValue;
-                _store.Save(_state);
+                Workspace.Save();
                 ApplyToolStylesToAll(tool);
             };
             root.Children.Add(size);
@@ -294,7 +294,7 @@ public sealed partial class MainWindow
         opacity.ValueChanged += (_, e) =>
         {
             StyleFor(tool).Opacity = e.NewValue / 100.0;
-            _store.Save(_state);
+            Workspace.Save();
             ApplyToolStylesToAll(tool);
         };
         root.Children.Add(opacity);
@@ -429,7 +429,7 @@ public sealed partial class MainWindow
         if (pad.RemoveBackgroundChosenByUser)
         {
             _state.Settings.SignatureRemoveBackground = pad.RemoveBackground;
-            _store.Save(_state);
+            Workspace.Save();
         }
 
         if (pad.Rasterize() is not { } image)

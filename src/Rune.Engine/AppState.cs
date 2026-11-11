@@ -28,6 +28,7 @@ public sealed class RecentFile
 /// <summary>What was open last time, so a restart can reopen it.</summary>
 public sealed class SessionState
 {
+    public List<SessionState> Windows { get; set; } = [];
     public List<string> OpenPaths { get; set; } = [];
     public int ActiveIndex { get; set; }
     public string? ActivePath { get; set; }
@@ -170,9 +171,17 @@ public sealed class AppState
         Recents.FirstOrDefault(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Records/updates a file's position and moves it to the top of recents.</summary>
-    public void Remember(string path, string displayName, int pageIndex, double zoom, int rotation, double scrollFraction)
+    public void Remember(string path, string displayName, int pageIndex, double zoom, int rotation, double scrollFraction, bool markOpened = true)
     {
         var existing = FindRecent(path);
+        if (!markOpened && existing is not null)
+        {
+            existing.PageIndex = pageIndex;
+            existing.Zoom = zoom;
+            existing.Rotation = rotation;
+            existing.ScrollFraction = scrollFraction;
+            return;
+        }
         Recents.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
         Recents.Insert(0, new RecentFile
         {
@@ -201,6 +210,11 @@ public sealed class AppState
     public bool ForgetRecent(string path)
     {
         int removed = Recents.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+        foreach (var window in Session.Windows)
+        {
+            window.OpenPaths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+            if (string.Equals(window.ActivePath, path, StringComparison.OrdinalIgnoreCase)) window.ActivePath = null;
+        }
         Session.OpenPaths.RemoveAll(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
         if (string.Equals(Session.ActivePath, path, StringComparison.OrdinalIgnoreCase))
         {
@@ -213,6 +227,7 @@ public sealed class AppState
     public void ForgetAllRecents()
     {
         Recents.Clear();
+        Session.Windows.Clear();
         Session.OpenPaths.Clear();
         Session.ActivePath = null;
     }

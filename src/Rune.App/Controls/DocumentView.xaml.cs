@@ -343,6 +343,7 @@ public sealed partial class DocumentView : UserControl
 
     public async Task SaveCopyAsync(string path)
     {
+        using var output = Workspace.ReserveOutput(path);
         await _saveGate.WaitAsync();
         try
         {
@@ -661,6 +662,7 @@ public sealed partial class DocumentView : UserControl
 
         try
         {
+            using var output = Workspace.ReserveOutput(path);
             var bytes = await Viewer.RunOnRenderThreadAsync(
                 PdfWorkPriority.Interactive, () => document.ExportPages(pages));
             await File.WriteAllBytesAsync(path, bytes);
@@ -1233,7 +1235,7 @@ public sealed partial class DocumentView : UserControl
     private async Task PickAndInsertPdfAsync(int atIndex)
     {
         var picked = await Rune.Services.FilePickerHost.PickOpenAsync(
-            WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow!), ".pdf");
+            WinRT.Interop.WindowNative.GetWindowHandle(Workspace.OwnerOf(this)), ".pdf");
         if (picked.Failed)
         {
             PageOpFailed?.Invoke(this, Rune.Services.FilePickerHost.FailureMessage);

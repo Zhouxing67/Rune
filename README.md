@@ -200,3 +200,18 @@ Rune is published on the Microsoft Store as **[Rune PDF Reader](https://apps.mic
 Rune's own source is written entirely by its copyright holder, and its dependencies are permissively licensed (PDFium is BSD-3-Clause / Apache-2.0, Win2D and .NET are MIT), so there is no third-party copyleft code in it. As the sole copyright holder I can distribute my own work under whatever terms I choose, and I choose to make it available both under the GPLv3 here and through the Store for people who want automatic updates and one-click installation.
 
 **This does not change anything about the GPLv3 grant.** The source in this repository is, and will remain, GPLv3: you may use, study, modify and redistribute it under those terms. The Store listing is an additional distribution channel, not a replacement, and every release is always available here as a portable download.
+
+### Multiple windows
+
+Rune uses one application instance. Use **Ctrl+N** or **New window** in the menu
+(right-click Home when no document is open) to create another window. A recent
+document's context menu also offers **Open in new window**. Each PDF has one
+owning window: opening it again activates its existing tab, including unsaved
+edits. Files opened from Explorer go to the last active Rune window; files
+opened or dropped inside a window stay there. Recent documents and settings are
+shared across windows. Saving a copy or extracting pages cannot replace a PDF
+that is already open in Rune.
+
+Closing a window prompts for its unsaved documents. Explicitly closed windows
+are removed from the saved session; closing the last window retains its tabs
+for the next launch. Moving existing tabs between windows is not yet supported.

@@ -11,12 +11,11 @@ namespace Rune.Services;
 /// <c>async void</c> handler and kill the process, which is exactly what
 /// happened when a background update check collided with a user-initiated one.
 ///
-/// Static because the app is single-window and the constraint is per-window;
-/// all callers are on the UI thread, so a plain bool needs no locking.
+/// Each XamlRoot has its own gate; different windows may show dialogs independently.
 /// </summary>
 public static class DialogHost
 {
-    public static bool IsOpen { get; private set; }
+    private static readonly HashSet<Microsoft.UI.Xaml.XamlRoot> OpenRoots = [];
 
     /// <summary>
     /// Shows a dialog, or returns <see cref="ContentDialogResult.None"/> if one
@@ -25,13 +24,12 @@ public static class DialogHost
     /// </summary>
     public static async Task<ContentDialogResult> ShowAsync(ContentDialog dialog)
     {
-        if (IsOpen)
+        if (dialog.XamlRoot is not { } root || !OpenRoots.Add(root))
         {
             ErrorLog.Default.Write("DialogHost", $"Suppressed a second dialog: {dialog.Title}");
             return ContentDialogResult.None;
         }
 
-        IsOpen = true;
         try
         {
             return await dialog.ShowAsync();
@@ -44,7 +42,7 @@ public static class DialogHost
         }
         finally
         {
-            IsOpen = false;
+            OpenRoots.Remove(root);
         }
     }
 }

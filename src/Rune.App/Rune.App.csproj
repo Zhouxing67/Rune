@@ -10,7 +10,7 @@
     <!-- Keep the executable icon on a distinct asset path so incremental
          app-host builds cannot reuse the retired Rune icon resource. -->
     <ApplicationIcon>Assets\RunePdf.ico</ApplicationIcon>
-    <Version>0.8.1</Version>
+    <Version>0.8.2</Version>
     <Platforms>x64;ARM64</Platforms>
     <!-- The RID must follow Platform, or a multi-arch Store bundle builds the
          ARM64 leg with win-x64 and fails (NETSDK1032). -->
@@ -22,6 +22,7 @@
          symbol packages are optional for Store submission. -->
     <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
     <UseWinUI>true</UseWinUI>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <EnableMsixTooling>true</EnableMsixTooling>
     <!-- Default: unpackaged self-contained exe (dev + portable zip).
          Release MSIX overrides on the command line: -p:WindowsPackageType=MSIX -->

@@ -64,6 +64,7 @@ internal static class ShortcutCatalog
         ]),
         new("File & window",
         [
+            new("New window", "Ctrl+N"),
             new("Open", "Ctrl+O"),
             new("Save / save as", "Ctrl+S / Ctrl+Shift+S"),
             new("Print", "Ctrl+P"),

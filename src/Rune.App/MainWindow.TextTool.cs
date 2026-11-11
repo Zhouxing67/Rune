@@ -51,7 +51,7 @@ public sealed partial class MainWindow
             Underline = style.Underline,
             Align = style.Align.ToString(),
         };
-        _store.Save(_state);
+        Workspace.Save();
     }
 
     private void TextToolButton_Click(object sender, RoutedEventArgs e)

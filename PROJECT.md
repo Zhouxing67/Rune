@@ -1,6 +1,6 @@
 # Rune — Project reference
 
-Current source version: **0.8.1**. MSIX identity version: **0.8.1.0**.
+Current source version: **0.8.2**. MSIX identity version: **0.8.2.0**.
 Updated 2026-11-11. These versions describe source, not Store publication status.
 
 ## Architecture
